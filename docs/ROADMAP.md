@@ -108,37 +108,79 @@ worth the added complexity before moving on to Phase III/IV.
 ## Phase III deliverables so far
 
 - **ELCI tool discovery** (`orbweaver-connectors`): implements the
-  directive's discovery doctrine (sections 26–27) directly — for each
-  known tool name, checks whether a binary actually exists on PATH, and
-  only ever runs `--help`/`--version` (plus a self-description command,
-  but only if `--help` itself listed one first) rather than assuming any
-  interface. `orbweaver integrations [--json]`.
+  directive's discovery doctrine (sections 26–27) — for each connector
+  candidate, checks whether a binary actually exists on PATH, and only
+  ever runs `--help`/`--version` (plus a self-description command, but
+  only if `--help` itself listed one first) rather than assuming any
+  interface. `orbweaver integrations [--org NAME] [--json]`.
 
-  Verified against the real estate: 13/28 candidate binaries found (13
-  tool names × `{name, name-cli}`). `deckhand` exposes a genuine
-  machine-readable `capabilities` JSON manifest when probed from its own
-  repo directory (the path already known from a snapshot) — the
-  json-manifest discovery tier picked this up automatically, no
-  guessing involved. Everything else fell back to help-text parsing
-  across two different real formats in the wild (plain clap-default,
-  and a hand-styled ANSI-colored template used by padagonia).
+  The tool list itself is no longer hardcoded in Orbweaver at all — it's
+  discovered two ways, both real:
 
-  Caught and fixed one real bug from running against real binaries:
-  `cambrian`, `goglz`, `hellhound`, and `deliver` all reject `--version`
-  with a nonzero exit and print clap's "unexpected argument" error —
-  the version-fallback wasn't checking exit status, so that error text
-  was being displayed as the tool's "version". Fixed by extracting the
-  accept/reject decision into a pure, directly-tested function
-  (`accept_version_output`) gated on process success.
+  1. **GitHub org discovery** (`orbweaver-connectors::github`): queries
+     `gh repo list <org>` (defaults to `elci-group`) for the actual
+     current repository inventory — 118 repos on the real org, not the
+     13 the directive happened to name. Any git operation this crate
+     performs uses the `sshUrl` GitHub returns, and only that — never an
+     `https://` URL is constructed.
+  2. **`.orb` self-declaration** (`orbweaver-connectors::orb`): most of
+     those 118 repos are not ELCI tooling (client apps, render services,
+     experiments), and Orbweaver has no principled way to guess which
+     are without hardcoding a filter — so it doesn't guess. A repository
+     opts itself in by carrying a `.orb` TOML file declaring binary name
+     hints and whether Orbweaver may acquire it when missing. Checked
+     locally only (in a repository already known from a snapshot) — a
+     repo that's never been cloned can't be checked without cloning it
+     speculatively, which this deliberately doesn't do for every one of
+     118 repos. `.orb` files were added to the 11 local repos previously
+     on the hardcoded list that still exist in the org (not `deliver` or
+     `switchboard` — a real finding: neither exists in `elci-group` on
+     GitHub at all, so GitHub-driven discovery correctly can't see them
+     any more than it can see any other purely-local tool).
 
-  Tool list: the 13 named in directive section 4.3 (Ontism, Padagonia,
-  Cambrian, Deckhand, Kaptaind, Skillastic, Switchboard, Mimic, Goglz,
-  Hellhound, Isopod, Schem, Dreamseq) plus `deliver`, added after
-  explicit confirmation that it's core ELCI infrastructure rather than
-  just another scanned repository (ordinary repos found by `orbweaver
-  scan` are not auto-promoted into the connector list — that would blur
-  "every repo we found" with "the infrastructure we treat as a
-  connector").
+  **Robust local binary matching**: candidates are `.orb`'s explicit
+  hints (if any) plus `{repo}`/`{repo}-cli`, all tried — not just the
+  first match, so a repo like kaptaind that legitimately installs two
+  separate binaries gets both reported, and a repo with zero matches
+  gets one consolidated "not found" line instead of one miss per name
+  variant tried.
+
+  **JIT install** (`orbweaver-connectors::install`): when every
+  candidate is missing and `.orb` marks the repo `installable`, Orbweaver
+  acquires it right then, inline, before reporting — a matching GitHub
+  release binary if one exists (checked by Rust target-triple substring
+  in the asset name, e.g. `x86_64-unknown-linux-gnu`; downloaded via `gh
+  release download`, `.tar.gz`/`.zip` extracted via `tar`/`unzip`, raw
+  binary assets used directly), falling back to a source build via
+  `baby --user` otherwise (building in the already-known local checkout
+  in place — no redundant clone; SSH clone into an Orbweaver-managed
+  cache dir is the fallback for a repo not yet known locally, currently
+  unreachable in practice since `.orb` can only be checked on repos
+  already local, but real, tested, and ready for when that changes).
+  `orbweaver doctor` explicitly never triggers this (`allow_install =
+  false`) — a routine health check must not have the side effect of
+  cloning and building software.
+
+  Verified end-to-end against the real estate, including the failure
+  path: of the 11 `.orb`-flagged tools, 10 were already installed and
+  probed correctly (`deckhand` via its genuine machine-readable
+  `capabilities` JSON manifest, the rest via help-text parsing across
+  two real formats — plain clap-default and padagonia's hand-styled
+  ANSI-colored template). `ontism` was genuinely missing; release lookup
+  correctly reported no matching asset and fell back to `baby`, which
+  ran a real `cargo build` in `/home/sal/ontism` that failed on *actual*
+  compile errors in that repo's own source (unrelated to Orbweaver) —
+  reported cleanly as `Unavailable` with a tail of the real compiler
+  output, not a crash or a silently-wrong success.
+
+  Also caught and fixed a real bug from running against real binaries
+  during the earlier hardcoded-list version: `cambrian`/`goglz`/
+  `hellhound` all reject `--version` with a nonzero exit and print
+  clap's "unexpected argument" error — the version-fallback wasn't
+  checking exit status, so that error text was being displayed as the
+  tool's "version". Fixed by extracting the accept/reject decision into
+  a pure, directly-tested function (`accept_version_output`) gated on
+  process success; still correct after the GitHub/`.orb` rewrite.
 
 ## Remaining Phase III work
 
@@ -146,7 +188,9 @@ Connector *capability mapping* is still shallow — a discovered command
 list (e.g. padagonia's `bfs`/`vector-search`/`to-json`) isn't yet turned
 into `Capability`/`Interface` records the way Rust repos get from
 `orbweaver-ingest`, and connector reports aren't persisted into
-snapshots (no `Evidence` trail, no `orbweaver integrations --repo`
-history over time) — both natural next steps once there's a concrete
-use for them, e.g. an opportunity that needs to cite "padagonia exposes
-vector search" as evidence.
+snapshots (no `Evidence` trail, no `orbweaver integrations` history over
+time) — both natural next steps once there's a concrete use for them,
+e.g. an opportunity that needs to cite "padagonia exposes vector search"
+as evidence. `.orb`'s `group` field is also accepted but not yet read by
+anything — reserved for grouping/hierarchy features, not implemented
+speculatively ahead of a real consumer.

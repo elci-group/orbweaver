@@ -70,16 +70,27 @@ capability detection — see `docs/ROADMAP.md`.
 
 ## What's built (Phase III — ELCI integration, in progress)
 
-- **ELCI tool discovery**: for each known ELCI tool, checks whether a
-  binary actually exists on PATH and only ever runs `--help`/`--version`
-  (plus a self-description command, but only if `--help` itself listed
-  one) — never assumes an interface. `orbweaver integrations [--json]`.
-  Verified against the real estate: 13/28 candidate binaries found;
-  `deckhand` exposes a genuine machine-readable capability manifest that
-  gets picked up automatically. Tool list is the 13 named in the
-  directive plus `deliver`, confirmed as core ELCI infrastructure. See
-  `docs/ROADMAP.md` for a real bug this caught and fixed (a rejected
-  `--version` flag's error text being mistaken for a version string).
+- **ELCI tool discovery, GitHub- and `.orb`-driven**: no hardcoded tool
+  list. The candidate set comes from `gh repo list <org>` (real GitHub
+  org inventory — 118 repos, not a curated 13; any git operation this
+  performs uses the SSH remote URL only, never HTTPS); scope within that
+  is decided per-repository by the repository itself via a `.orb` TOML
+  file it carries, opting in with binary-name hints and whether
+  Orbweaver may acquire it when missing — not by Orbweaver guessing.
+  Binary matching tries every candidate (`.orb` hints + `{repo}`/
+  `{repo}-cli`), not just the first hit. `orbweaver integrations [--org
+  NAME] [--json]`.
+- **JIT install**: when a `.orb`-flagged tool is missing locally and
+  marked installable, `orbweaver integrations` acquires it inline before
+  reporting — a matching GitHub release binary preferred (Rust
+  target-triple asset matching, `.tar.gz`/`.zip` extraction via `tar`/
+  `unzip`), a `baby --user` source build as fallback (building in the
+  already-known local checkout, no redundant clone). `orbweaver doctor`
+  never triggers this — a health check must stay side-effect-free.
+  Verified end-to-end including the failure path: `ontism` was genuinely
+  missing, had no matching release, and `baby`'s build failed on real
+  compile errors in that repo's own source — reported cleanly as
+  `Unavailable` with the actual compiler output, not a crash.
 
 Still open in Phase III: turning discovered connector commands into
 `Capability`/`Interface` records and persisting connector reports into
@@ -102,6 +113,25 @@ multiple downstream consumers" pattern the directive's worked example
 need to be told this relationship existed; it read it out of the
 manifests.
 
+## Opting a repository in to ELCI-connector discovery
+
+Add a `.orb` file to a repository's root:
+
+```toml
+version = 1
+
+[tool]
+binaries = ["mytool", "mytool-cli"]  # optional; defaults to [repo-name]
+
+[install]
+installable = true              # may orbweaver build/install this when missing?
+prefer_release_binary = true    # try a matching GitHub release asset first
+```
+
+That's the whole opt-in. Orbweaver only ever checks for `.orb` in a
+repository it already knows about locally (from a prior `orbweaver
+scan`) — nothing is cloned speculatively just to check.
+
 ## What's explicitly not built yet
 
 - Opportunity discovery, the leverage/scoring engine, counterfactual
@@ -122,7 +152,8 @@ crates/
   orbweaver-graph      petgraph projection + JSON export
   orbweaver-analysis   cross-repository analysis over a loaded snapshot
                        (duplicate/shared-dependency detection)
-  orbweaver-connectors ELCI tool discovery (PATH probing, --help parsing)
+  orbweaver-connectors ELCI tool discovery: GitHub org inventory, .orb
+                       self-declaration, PATH probing, JIT install
   orbweaver-storage    SQLite snapshot persistence
   orbweaver-cli        `orbweaver` binary
 ```

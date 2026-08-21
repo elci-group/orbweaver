@@ -95,6 +95,9 @@ enum Command {
     /// actually expose — probes `--help`/`--version` on PATH, never
     /// assumes an interface (directive sections 26–27).
     Integrations {
+        /// GitHub org to discover repositories from.
+        #[arg(long)]
+        org: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -122,7 +125,9 @@ fn main() -> Result<()> {
         } => cmd_duplicates(snapshot, min_repos, max_ubiquity, json),
         Command::Interfaces { snapshot, repo, json } => cmd_interfaces(snapshot, repo, json),
         Command::Schemas { snapshot, repo, json } => cmd_schemas(snapshot, repo, json),
-        Command::Integrations { json } => cmd_integrations(json),
+        Command::Integrations { org, json } => {
+            cmd_integrations(org.unwrap_or_else(|| orbweaver_connectors::ELCI_GITHUB_ORG.to_string()), json)
+        }
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -423,17 +428,23 @@ fn cmd_schemas(snapshot: Option<String>, repo: Option<String>, json: bool) -> Re
     Ok(())
 }
 
-fn cmd_integrations(json: bool) -> Result<()> {
+fn cmd_integrations(org: String, json: bool) -> Result<()> {
     let repo_paths = latest_repo_paths().unwrap_or_default();
 
-    let pb = style::spinner("Reaching out across the ELCI estate…");
-    let mut reports = Vec::new();
-    for tool in orbweaver_connectors::KNOWN_TOOLS {
-        pb.set_message(format!("Probing {}…", style(*tool).cyan()));
-        let repo_path = repo_paths.get(*tool).map(|p| p.as_path());
-        reports.extend(orbweaver_connectors::probe_tool(tool, repo_path));
-    }
+    let pb = style::spinner(format!("Discovering {}'s repositories on GitHub…", style(&org).cyan()));
+    let reports = orbweaver_connectors::discover_and_probe(&org, &repo_paths, true, |repo_name| {
+        pb.set_message(format!("Checking {}…", style(repo_name).cyan()));
+    });
     pb.finish_and_clear();
+
+    let reports = match reports {
+        Ok(reports) => reports,
+        Err(e) => {
+            println!("{}\n", style::header(style::INTEGRATIONS, "ORBWEAVER INTEGRATIONS"));
+            println!("{} GitHub discovery unavailable: {e}", style::FAIL);
+            return Ok(());
+        }
+    };
 
     if json {
         println!("{}", serde_json::to_string_pretty(&reports)?);
@@ -444,9 +455,14 @@ fn cmd_integrations(json: bool) -> Result<()> {
     println!(
         "{}\n",
         style::note(
-            "Probing PATH for known ELCI binaries. Only --help/--version, and a\n\
-             self-description command if --help itself listed one, are ever run."
+            "Repositories come from the real github.com/{org} inventory, not a hardcoded\n\
+             list. Only repos already known locally *and* carrying a `.orb` file opting in\n\
+             are shown — everything else in the org is out of scope by its own choice, not\n\
+             ours. `.orb`-installable tools missing locally were just acquired on demand\n\
+             (a matching GitHub release binary if one exists, else built from source via\n\
+             `baby`)."
         )
+        .replace("{org}", &org)
     );
 
     let available = reports
@@ -518,16 +534,25 @@ fn cmd_doctor() -> Result<()> {
     }
 
     let repo_paths = latest_repo_paths().unwrap_or_default();
-    let reports = orbweaver_connectors::probe_all(&repo_paths);
-    let available = reports
-        .iter()
-        .filter(|r| matches!(r.availability, orbweaver_evidence::Availability::Known(_)))
-        .count();
-    println!(
-        "{} ELCI connectors: {available}/{} candidate binaries discovered on PATH (see `orbweaver integrations`)",
-        style::OK,
-        reports.len()
-    );
+    match orbweaver_connectors::discover_and_probe(
+        orbweaver_connectors::ELCI_GITHUB_ORG,
+        &repo_paths,
+        false,
+        |_| {},
+    ) {
+        Ok(reports) => {
+            let available = reports
+                .iter()
+                .filter(|r| matches!(r.availability, orbweaver_evidence::Availability::Known(_)))
+                .count();
+            println!(
+                "{} ELCI connectors: {available}/{} `.orb`-declared tools available locally (see `orbweaver integrations`)",
+                style::OK,
+                reports.len()
+            );
+        }
+        Err(e) => println!("{} ELCI connector discovery: {e}", style::WARN),
+    }
 
     println!(
         "{} opportunity engine, leverage scoring: not yet implemented (Phase IV+)",
