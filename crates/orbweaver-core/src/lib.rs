@@ -1,10 +1,13 @@
 //! Core ecosystem data model.
 //!
-//! Phase I scope only: repositories, their manifests, and the dependency
-//! edges deterministically observable from those manifests. Capability,
-//! Interface, Opportunity, Intervention etc. (directive section 9) are
-//! introduced in later phases once there is real extraction logic behind
-//! them — see docs/ROADMAP.md.
+//! Phase I: repositories, their manifests, and the dependency edges
+//! deterministically observable from those manifests. Phase II adds
+//! `Capability` — a conservative first cut at "what does this repository
+//! actually do", built only from evidence already collected during
+//! ingestion (declared binaries/scripts, manifest/README descriptions),
+//! never from executing anything. Interface, Opportunity, Intervention
+//! etc. (directive section 9) still wait on later phases — see
+//! docs/ROADMAP.md.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -60,13 +63,31 @@ pub struct Repository {
     pub dependencies: Vec<DependencyRef>,
 }
 
-/// An immutable point-in-time capture of the ecosystem (directive section 22).
+/// The kind of capability inferred from a repository's declared entry
+/// points. `Cli` means the repository declares at least one runnable
+/// binary/script; `Library` means it has a manifest but no such entry
+/// point — a much weaker claim, since we haven't examined its public API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CapabilityKind {
+    Cli,
+    Library,
+}
+
+/// A first, conservative cut at "what does this repository do" (directive
+/// section 12). Built only by aggregating evidence already gathered during
+/// ingestion — never invented, never requires running the repository's
+/// code. `evidence_sources` counts how many independent signals agree
+/// (e.g. a declared bin target + a manifest description); a capability
+/// backed by only one signal is a weaker claim than one backed by two,
+/// and callers should treat the count as part of the claim, not discard it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
+pub struct Capability {
     pub id: String,
-    pub created_at: DateTime<Utc>,
-    pub root: PathBuf,
-    pub repositories: Vec<Repository>,
+    pub repository: RepoId,
+    pub name: String,
+    pub kind: CapabilityKind,
+    pub description: Option<String>,
+    pub evidence_sources: u32,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -4,12 +4,13 @@
 //! the same scan. Every claim produced here carries an [`Evidence`] record
 //! (directive section 10) — nothing is asserted without a source.
 
+mod capabilities;
 mod discover;
 mod manifests;
 
 pub use discover::discover_repositories;
 
-use orbweaver_core::{ManifestKind, Repository};
+use orbweaver_core::{Capability, ManifestKind, Repository};
 use orbweaver_evidence::{Confidence, Evidence, SourceType};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -31,6 +32,7 @@ impl Default for ScanConfig {
 
 pub struct ScanResult {
     pub repositories: Vec<Repository>,
+    pub capabilities: Vec<Capability>,
     pub evidence: Vec<Evidence>,
 }
 
@@ -48,8 +50,16 @@ pub fn scan(config: &ScanConfig) -> std::io::Result<ScanResult> {
 
     resolve_internal_dependencies(&mut repositories, &mut evidence);
 
+    let mut all_capabilities = Vec::new();
+    for repo in &repositories {
+        let (mut caps, mut cap_evidence) = capabilities::extract(repo);
+        all_capabilities.append(&mut caps);
+        evidence.append(&mut cap_evidence);
+    }
+
     Ok(ScanResult {
         repositories,
+        capabilities: all_capabilities,
         evidence,
     })
 }

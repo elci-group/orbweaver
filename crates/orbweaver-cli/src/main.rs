@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use orbweaver_core::Repository;
+use orbweaver_core::{Capability, CapabilityKind, Repository};
 use orbweaver_evidence::Evidence;
 use orbweaver_graph::EcosystemGraph;
 use orbweaver_ingest::ScanConfig;
@@ -39,6 +39,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// List extracted capabilities from a snapshot.
+    Capabilities {
+        /// Snapshot id; defaults to the latest.
+        #[arg(long)]
+        snapshot: Option<String>,
+        /// Only show capabilities for this repository id.
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check that Orbweaver's local environment is healthy.
     Doctor,
 }
@@ -54,6 +65,7 @@ fn main() -> Result<()> {
         Command::Status => cmd_status(),
         Command::Snapshots => cmd_snapshots(),
         Command::Graph { snapshot, json } => cmd_graph(snapshot, json),
+        Command::Capabilities { snapshot, repo, json } => cmd_capabilities(snapshot, repo, json),
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -80,6 +92,7 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
         &snapshot_id,
         &root,
         &result.repositories,
+        &result.capabilities,
         &result.evidence,
     )?;
 
@@ -88,10 +101,17 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
             "snapshot": snapshot_id,
             "root": root,
             "repositories": result.repositories,
+            "capabilities": result.capabilities,
         });
         println!("{}", serde_json::to_string_pretty(&export)?);
     } else {
-        print_scan_summary(&snapshot_id, &root, &result.repositories, &result.evidence);
+        print_scan_summary(
+            &snapshot_id,
+            &root,
+            &result.repositories,
+            &result.capabilities,
+            &result.evidence,
+        );
     }
 
     Ok(())
@@ -104,12 +124,18 @@ fn cmd_status() -> Result<()> {
         println!("No snapshots yet. Run `orbweaver scan --root <path>` first.");
         return Ok(());
     };
-    let (repositories, evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let (repositories, capabilities, evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
     let summary = orbweaver_storage::list_snapshots(&conn)?
         .into_iter()
         .find(|s| s.id == snapshot_id)
         .expect("just-loaded snapshot must be listed");
-    print_scan_summary(&snapshot_id, &PathBuf::from(&summary.root), &repositories, &evidence);
+    print_scan_summary(
+        &snapshot_id,
+        &PathBuf::from(&summary.root),
+        &repositories,
+        &capabilities,
+        &evidence,
+    );
     Ok(())
 }
 
@@ -135,7 +161,7 @@ fn cmd_graph(snapshot: Option<String>, json: bool) -> Result<()> {
         None => orbweaver_storage::latest_snapshot_id(&conn)?
             .context("no snapshots yet — run `orbweaver scan` first")?,
     };
-    let (repositories, _evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let (repositories, _capabilities, _evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
     let graph = EcosystemGraph::from_repositories(&repositories);
 
     if json {
@@ -149,6 +175,43 @@ fn cmd_graph(snapshot: Option<String>, json: bool) -> Result<()> {
         for (i, (name, count)) in graph.most_depended_on(10).into_iter().enumerate() {
             println!("  {:>2}. {name}  ({count} consumer(s))", i + 1);
         }
+    }
+    Ok(())
+}
+
+fn cmd_capabilities(snapshot: Option<String>, repo: Option<String>, json: bool) -> Result<()> {
+    let db_path = orbweaver_storage::default_db_path();
+    let conn = orbweaver_storage::open(&db_path)?;
+    let snapshot_id = match snapshot {
+        Some(id) => id,
+        None => orbweaver_storage::latest_snapshot_id(&conn)?
+            .context("no snapshots yet — run `orbweaver scan` first")?,
+    };
+    let (_repositories, mut capabilities, _evidence) =
+        orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+
+    if let Some(repo_id) = &repo {
+        capabilities.retain(|c| &c.repository == repo_id);
+    }
+    capabilities.sort_by(|a, b| a.repository.cmp(&b.repository).then(a.name.cmp(&b.name)));
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&capabilities)?);
+        return Ok(());
+    }
+
+    println!("Snapshot: {snapshot_id}");
+    println!("Capabilities: {}\n", capabilities.len());
+    for cap in &capabilities {
+        let kind = match cap.kind {
+            CapabilityKind::Cli => "cli",
+            CapabilityKind::Library => "lib",
+        };
+        let desc = cap.description.as_deref().unwrap_or("(no description)");
+        println!(
+            "  [{kind}] {:<28} {:<20} sources={}  {desc}",
+            cap.repository, cap.name, cap.evidence_sources
+        );
     }
     Ok(())
 }
@@ -183,7 +246,13 @@ fn which_git() -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-fn print_scan_summary(snapshot_id: &str, root: &Path, repositories: &[Repository], evidence: &[Evidence]) {
+fn print_scan_summary(
+    snapshot_id: &str,
+    root: &Path,
+    repositories: &[Repository],
+    capabilities: &[Capability],
+    evidence: &[Evidence],
+) {
     let graph = EcosystemGraph::from_repositories(repositories);
 
     let git_tracked = repositories.iter().filter(|r| r.is_git_repo).count();
@@ -206,6 +275,13 @@ fn print_scan_summary(snapshot_id: &str, root: &Path, repositories: &[Repository
     println!("Total commits observed (capped per repo): {total_commits}");
     println!("Evidence records: {}", evidence.len());
     println!("Dependency edges resolved: {}", graph.edge_count());
+
+    let cli_count = capabilities
+        .iter()
+        .filter(|c| c.kind == CapabilityKind::Cli)
+        .count();
+    let lib_count = capabilities.len() - cli_count;
+    println!("Capabilities extracted: {} (cli={cli_count}, library={lib_count})", capabilities.len());
 
     let top = graph.most_depended_on(5);
     if !top.is_empty() {

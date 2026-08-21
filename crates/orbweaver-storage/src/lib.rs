@@ -2,7 +2,9 @@
 //! Local mode only; PostgreSQL/enterprise mode is Phase VIII.
 
 use chrono::{DateTime, Utc};
-use orbweaver_core::{DependencyRef, ManifestKind, OrbweaverError, Repository, Result};
+use orbweaver_core::{
+    Capability, CapabilityKind, DependencyRef, ManifestKind, OrbweaverError, Repository, Result,
+};
 use orbweaver_evidence::{Confidence, Evidence, SourceType};
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
@@ -69,6 +71,17 @@ fn init_schema(conn: &Connection) -> Result<()> {
             resolved_repo TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS capabilities (
+            snapshot_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            repository TEXT NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            description TEXT,
+            evidence_sources INTEGER NOT NULL,
+            PRIMARY KEY (snapshot_id, id)
+        );
+
         CREATE TABLE IF NOT EXISTS evidence (
             snapshot_id TEXT NOT NULL,
             id TEXT NOT NULL,
@@ -85,6 +98,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_deps_snapshot ON dependencies(snapshot_id, repo_id);
         CREATE INDEX IF NOT EXISTS idx_evidence_snapshot ON evidence(snapshot_id, repository);
+        CREATE INDEX IF NOT EXISTS idx_capabilities_snapshot ON capabilities(snapshot_id, repository);
         "#,
     )
     .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -96,6 +110,7 @@ pub fn save_snapshot(
     snapshot_id: &str,
     root: &Path,
     repositories: &[Repository],
+    capabilities: &[Capability],
     evidence: &[Evidence],
 ) -> Result<()> {
     let tx = conn
@@ -158,6 +173,28 @@ pub fn save_snapshot(
             )
             .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
         }
+    }
+
+    for cap in capabilities {
+        let kind_str = match cap.kind {
+            CapabilityKind::Cli => "Cli",
+            CapabilityKind::Library => "Library",
+        };
+        tx.execute(
+            "INSERT OR REPLACE INTO capabilities
+                (snapshot_id, id, repository, name, kind, description, evidence_sources)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                snapshot_id,
+                cap.id,
+                cap.repository,
+                cap.name,
+                kind_str,
+                cap.description,
+                cap.evidence_sources,
+            ],
+        )
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
     }
 
     for ev in evidence {
@@ -228,7 +265,10 @@ pub fn list_snapshots(conn: &Connection) -> Result<Vec<SnapshotSummary>> {
         .map_err(|e| OrbweaverError::Storage(e.to_string()))
 }
 
-pub fn load_snapshot(conn: &Connection, snapshot_id: &str) -> Result<(Vec<Repository>, Vec<Evidence>)> {
+pub fn load_snapshot(
+    conn: &Connection,
+    snapshot_id: &str,
+) -> Result<(Vec<Repository>, Vec<Capability>, Vec<Evidence>)> {
     let mut repos = load_repositories(conn, snapshot_id)?;
     let deps = load_dependencies(conn, snapshot_id)?;
     for repo in &mut repos {
@@ -236,8 +276,39 @@ pub fn load_snapshot(conn: &Connection, snapshot_id: &str) -> Result<(Vec<Reposi
             repo.dependencies = list.clone();
         }
     }
+    let capabilities = load_capabilities(conn, snapshot_id)?;
     let evidence = load_evidence(conn, snapshot_id)?;
-    Ok((repos, evidence))
+    Ok((repos, capabilities, evidence))
+}
+
+fn load_capabilities(conn: &Connection, snapshot_id: &str) -> Result<Vec<Capability>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, repository, name, kind, description, evidence_sources
+             FROM capabilities WHERE snapshot_id = ?1",
+        )
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+
+    let rows = stmt
+        .query_map(params![snapshot_id], |row| {
+            let kind_str: String = row.get(3)?;
+            Ok(Capability {
+                id: row.get(0)?,
+                repository: row.get(1)?,
+                name: row.get(2)?,
+                kind: if kind_str == "Cli" {
+                    CapabilityKind::Cli
+                } else {
+                    CapabilityKind::Library
+                },
+                description: row.get(4)?,
+                evidence_sources: row.get::<_, i64>(5)? as u32,
+            })
+        })
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))
 }
 
 fn load_repositories(conn: &Connection, snapshot_id: &str) -> Result<Vec<Repository>> {
