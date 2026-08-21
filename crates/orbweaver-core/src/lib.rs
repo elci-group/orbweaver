@@ -16,7 +16,7 @@ use std::path::PathBuf;
 pub type RepoId = String;
 
 /// A dependency manifest format recognised during ingestion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ManifestKind {
     Cargo,
     Npm,

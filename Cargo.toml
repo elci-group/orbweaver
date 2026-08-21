@@ -6,6 +6,7 @@ members = [
     "crates/orbweaver-git",
     "crates/orbweaver-ingest",
     "crates/orbweaver-graph",
+    "crates/orbweaver-analysis",
     "crates/orbweaver-storage",
     "crates/orbweaver-cli",
 ]
@@ -22,6 +23,7 @@ orbweaver-evidence = { path = "crates/orbweaver-evidence" }
 orbweaver-git = { path = "crates/orbweaver-git" }
 orbweaver-ingest = { path = "crates/orbweaver-ingest" }
 orbweaver-graph = { path = "crates/orbweaver-graph" }
+orbweaver-analysis = { path = "crates/orbweaver-analysis" }
 orbweaver-storage = { path = "crates/orbweaver-storage" }
 
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +37,4 @@ clap = { version = "4", features = ["derive"] }
 git2 = { version = "0.19", default-features = false }
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 petgraph = "0.6"
+tempfile = "3"

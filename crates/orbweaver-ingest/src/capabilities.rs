@@ -212,3 +212,108 @@ fn contains_package_main(go_file: &Path) -> bool {
         .map(|c| c.lines().any(|l| l.trim() == "package main"))
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repo(path: &Path, name: &str, manifests: Vec<ManifestKind>) -> Repository {
+        Repository {
+            id: name.to_string(),
+            name: name.to_string(),
+            path: path.to_path_buf(),
+            description: None,
+            primary_language: None,
+            manifests,
+            license: None,
+            readme_present: false,
+            is_git_repo: false,
+            default_branch: None,
+            last_commit_at: None,
+            commit_count: None,
+            contributor_count: None,
+            dependencies: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cargo_repo_with_src_main_is_a_cli_capability() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"widget\"\ndescription = \"does things\"",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main() {}").unwrap();
+
+        let mut r = repo(dir.path(), "widget", vec![ManifestKind::Cargo]);
+        r.description = Some("does things".to_string());
+
+        let (caps, evidence) = extract(&r);
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].kind, CapabilityKind::Cli);
+        assert_eq!(caps[0].name, "widget");
+        // entry point + description = 2 independent sources.
+        assert_eq!(caps[0].evidence_sources, 2);
+        assert_eq!(evidence.len(), 1);
+    }
+
+    #[test]
+    fn cargo_library_with_no_bin_gets_weaker_library_capability() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"corelib\"").unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "").unwrap();
+
+        let r = repo(dir.path(), "corelib", vec![ManifestKind::Cargo]);
+
+        let (caps, _evidence) = extract(&r);
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].kind, CapabilityKind::Library);
+        assert_eq!(caps[0].evidence_sources, 1);
+    }
+
+    #[test]
+    fn repo_with_no_manifests_has_no_capabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = repo(dir.path(), "mystery", vec![]);
+        let (caps, evidence) = extract(&r);
+        assert!(caps.is_empty());
+        assert!(evidence.is_empty());
+    }
+
+    #[test]
+    fn npm_object_bin_field_yields_one_capability_per_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"cli-suite","bin":{"foo":"./bin/foo.js","bar":"./bin/bar.js"}}"#,
+        )
+        .unwrap();
+
+        let r = repo(dir.path(), "cli-suite", vec![ManifestKind::Npm]);
+        let (mut caps, _) = extract(&r);
+        caps.sort_by(|a, b| a.name.cmp(&b.name));
+
+        assert_eq!(caps.len(), 2);
+        assert_eq!(caps[0].name, "bar");
+        assert_eq!(caps[1].name, "foo");
+    }
+
+    #[test]
+    fn go_cmd_directory_with_package_main_is_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_tool = dir.path().join("cmd/tool");
+        std::fs::create_dir_all(&cmd_tool).unwrap();
+        std::fs::write(cmd_tool.join("main.go"), "package main\n\nfunc main() {}\n").unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/elci-group/widget\n").unwrap();
+
+        let r = repo(dir.path(), "widget", vec![ManifestKind::Go]);
+        let (caps, _) = extract(&r);
+
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].name, "tool");
+        assert_eq!(caps[0].kind, CapabilityKind::Cli);
+    }
+}

@@ -129,3 +129,86 @@ pub struct GraphExport {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbweaver_core::DependencyRef;
+    use std::path::PathBuf;
+
+    fn repo(id: &str, deps: Vec<DependencyRef>) -> Repository {
+        Repository {
+            id: id.to_string(),
+            name: id.to_string(),
+            path: PathBuf::from(id),
+            description: None,
+            primary_language: None,
+            manifests: vec![],
+            license: None,
+            readme_present: false,
+            is_git_repo: false,
+            default_branch: None,
+            last_commit_at: None,
+            commit_count: None,
+            contributor_count: None,
+            dependencies: deps,
+        }
+    }
+
+    fn resolved_dep(name: &str, target: &str) -> DependencyRef {
+        DependencyRef {
+            name: name.to_string(),
+            version_req: None,
+            manifest: orbweaver_core::ManifestKind::Cargo,
+            is_path_dependency: true,
+            path_hint: None,
+            resolved_repo: Some(target.to_string()),
+        }
+    }
+
+    #[test]
+    fn unresolved_dependencies_do_not_become_edges() {
+        let unresolved = DependencyRef {
+            name: "serde".to_string(),
+            version_req: None,
+            manifest: orbweaver_core::ManifestKind::Cargo,
+            is_path_dependency: false,
+            path_hint: None,
+            resolved_repo: None,
+        };
+        let repos = vec![repo("a", vec![unresolved])];
+        let graph = EcosystemGraph::from_repositories(&repos);
+        assert_eq!(graph.node_count(), 1);
+        assert_eq!(graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn most_depended_on_ranks_by_incoming_edge_count() {
+        let repos = vec![
+            repo("a", vec![resolved_dep("core", "core")]),
+            repo("b", vec![resolved_dep("core", "core")]),
+            repo("c", vec![resolved_dep("core", "core")]),
+            repo("core", vec![]),
+        ];
+        let graph = EcosystemGraph::from_repositories(&repos);
+        assert_eq!(graph.node_count(), 4);
+        assert_eq!(graph.edge_count(), 3);
+
+        let top = graph.most_depended_on(5);
+        assert_eq!(top[0], ("core".to_string(), 3));
+    }
+
+    #[test]
+    fn export_round_trips_node_and_edge_counts() {
+        let repos = vec![
+            repo("a", vec![resolved_dep("core", "core")]),
+            repo("core", vec![]),
+        ];
+        let graph = EcosystemGraph::from_repositories(&repos);
+        let export = graph.to_export();
+        assert_eq!(export.nodes.len(), 2);
+        assert_eq!(export.edges.len(), 1);
+        assert_eq!(export.edges[0].from, "a");
+        assert_eq!(export.edges[0].to, "core");
+    }
+}

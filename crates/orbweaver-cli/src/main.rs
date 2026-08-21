@@ -50,6 +50,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Find external dependencies shared by more than one repository —
+    /// candidates for infrastructure-extraction review (not proof of
+    /// duplication; see `orbweaver-analysis`).
+    Duplicates {
+        #[arg(long)]
+        snapshot: Option<String>,
+        #[arg(long, default_value_t = 2)]
+        min_repos: usize,
+        /// Exclude dependencies used by more than this fraction of
+        /// repositories in their ecosystem (filters out foundational
+        /// crates like tokio/serde that say nothing when shared).
+        #[arg(long, default_value_t = 0.2)]
+        max_ubiquity: f64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check that Orbweaver's local environment is healthy.
     Doctor,
 }
@@ -66,6 +82,12 @@ fn main() -> Result<()> {
         Command::Snapshots => cmd_snapshots(),
         Command::Graph { snapshot, json } => cmd_graph(snapshot, json),
         Command::Capabilities { snapshot, repo, json } => cmd_capabilities(snapshot, repo, json),
+        Command::Duplicates {
+            snapshot,
+            min_repos,
+            max_ubiquity,
+            json,
+        } => cmd_duplicates(snapshot, min_repos, max_ubiquity, json),
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -211,6 +233,45 @@ fn cmd_capabilities(snapshot: Option<String>, repo: Option<String>, json: bool) 
         println!(
             "  [{kind}] {:<28} {:<20} sources={}  {desc}",
             cap.repository, cap.name, cap.evidence_sources
+        );
+    }
+    Ok(())
+}
+
+fn cmd_duplicates(snapshot: Option<String>, min_repos: usize, max_ubiquity: f64, json: bool) -> Result<()> {
+    let db_path = orbweaver_storage::default_db_path();
+    let conn = orbweaver_storage::open(&db_path)?;
+    let snapshot_id = match snapshot {
+        Some(id) => id,
+        None => orbweaver_storage::latest_snapshot_id(&conn)?
+            .context("no snapshots yet — run `orbweaver scan` first")?,
+    };
+    let (repositories, _capabilities, _evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let candidates =
+        orbweaver_analysis::shared_dependency_candidates(&repositories, min_repos, max_ubiquity);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&candidates)?);
+        return Ok(());
+    }
+
+    println!("Snapshot: {snapshot_id}");
+    println!(
+        "Shared external dependency candidates: {} (min_repos={min_repos})",
+        candidates.len()
+    );
+    println!(
+        "Confidence: ProbabilisticInference — shared adoption of a dependency is a candidate\n\
+         signal for shared/duplicate infrastructure, not proof of it. Review before acting.\n"
+    );
+    for c in &candidates {
+        println!(
+            "  {:<28} [{:?}]  {}/{} repos: {}",
+            c.dependency_name,
+            c.manifest,
+            c.repositories.len(),
+            c.ecosystem_total,
+            c.repositories.join(", ")
         );
     }
     Ok(())

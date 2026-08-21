@@ -264,3 +264,93 @@ fn resolve_internal_dependencies(repositories: &mut [Repository], evidence: &mut
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbweaver_core::DependencyRef;
+
+    fn bare_repo(id: &str, path: std::path::PathBuf) -> Repository {
+        Repository {
+            id: id.to_string(),
+            name: id.to_string(),
+            path,
+            description: None,
+            primary_language: None,
+            manifests: vec![],
+            license: None,
+            readme_present: false,
+            is_git_repo: false,
+            default_branch: None,
+            last_commit_at: None,
+            commit_count: None,
+            contributor_count: None,
+            dependencies: vec![],
+        }
+    }
+
+    #[test]
+    fn resolves_path_dependency_over_name_match_and_ignores_self_references() {
+        let root = tempfile::tempdir().unwrap();
+        let a_path = root.path().join("a");
+        let b_path = root.path().join("b");
+        std::fs::create_dir(&a_path).unwrap();
+        std::fs::create_dir(&b_path).unwrap();
+
+        let mut a = bare_repo("a", a_path);
+        a.dependencies.push(DependencyRef {
+            name: "b-crate".to_string(),
+            version_req: None,
+            manifest: ManifestKind::Cargo,
+            is_path_dependency: true,
+            path_hint: Some("../b".to_string()),
+            resolved_repo: None,
+        });
+        // A dependency on itself by name must never resolve to itself.
+        a.dependencies.push(DependencyRef {
+            name: "a".to_string(),
+            version_req: None,
+            manifest: ManifestKind::Cargo,
+            is_path_dependency: false,
+            path_hint: None,
+            resolved_repo: None,
+        });
+
+        let b = bare_repo("b", b_path);
+
+        let mut repos = vec![a, b];
+        let mut evidence = Vec::new();
+        resolve_internal_dependencies(&mut repos, &mut evidence);
+
+        let a = &repos[0];
+        assert_eq!(a.dependencies[0].resolved_repo.as_deref(), Some("b"));
+        assert_eq!(a.dependencies[1].resolved_repo, None);
+        assert_eq!(evidence.len(), 1);
+    }
+
+    #[test]
+    fn resolves_by_case_insensitive_name_match_when_no_path_hint() {
+        let root = tempfile::tempdir().unwrap();
+        let c_path = root.path().join("c");
+        let d_path = root.path().join("d");
+        std::fs::create_dir(&c_path).unwrap();
+        std::fs::create_dir(&d_path).unwrap();
+
+        let mut c = bare_repo("c", c_path);
+        c.dependencies.push(DependencyRef {
+            name: "D".to_string(),
+            version_req: None,
+            manifest: ManifestKind::Npm,
+            is_path_dependency: false,
+            path_hint: None,
+            resolved_repo: None,
+        });
+        let d = bare_repo("d", d_path);
+
+        let mut repos = vec![c, d];
+        let mut evidence = Vec::new();
+        resolve_internal_dependencies(&mut repos, &mut evidence);
+
+        assert_eq!(repos[0].dependencies[0].resolved_repo.as_deref(), Some("d"));
+    }
+}

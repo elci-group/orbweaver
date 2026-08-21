@@ -72,3 +72,67 @@ fn is_repository_candidate(path: &Path) -> bool {
     }
     MARKER_FILES.iter().any(|marker| path.join(marker).exists())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn finds_repos_by_manifest_or_git_and_skips_noise() {
+        let root = tempfile::tempdir().unwrap();
+
+        // A real Cargo repo.
+        let cargo_repo = root.path().join("widget");
+        fs::create_dir(&cargo_repo).unwrap();
+        fs::write(cargo_repo.join("Cargo.toml"), "[package]\nname=\"widget\"").unwrap();
+
+        // A real git repo with no manifest.
+        let git_repo = root.path().join("some-git-repo");
+        fs::create_dir(&git_repo).unwrap();
+        fs::create_dir(git_repo.join(".git")).unwrap();
+
+        // A hidden directory — must be skipped even though it has a marker.
+        let hidden = root.path().join(".hidden");
+        fs::create_dir(&hidden).unwrap();
+        fs::write(hidden.join("Cargo.toml"), "[package]\nname=\"hidden\"").unwrap();
+
+        // A denylisted noise directory — must be skipped even with a marker.
+        let noise = root.path().join("node_modules");
+        fs::create_dir(&noise).unwrap();
+        fs::write(noise.join("package.json"), "{}").unwrap();
+
+        // An empty directory with no marker at all.
+        let empty = root.path().join("just-a-folder");
+        fs::create_dir(&empty).unwrap();
+
+        let found = discover_repositories(root.path()).unwrap();
+        let names: Vec<_> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
+
+        assert_eq!(names, vec!["some-git-repo", "widget"]);
+    }
+
+    #[test]
+    fn skips_symlinked_directories() {
+        let root = tempfile::tempdir().unwrap();
+
+        let real_repo = root.path().join("real-widget");
+        fs::create_dir(&real_repo).unwrap();
+        fs::write(real_repo.join("Cargo.toml"), "[package]\nname=\"real\"").unwrap();
+
+        let link = root.path().join("linked-widget");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real_repo, &link).unwrap();
+
+        let found = discover_repositories(root.path()).unwrap();
+        let names: Vec<_> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
+
+        assert_eq!(names, vec!["real-widget"]);
+    }
+}

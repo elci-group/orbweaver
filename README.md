@@ -33,6 +33,23 @@ is to find those interactions with evidence, not vibes.
   snapshot in a local SQLite store (`~/.local/share/orbweaver/orbweaver.db`).
 - **CLI**: `scan`, `status`, `snapshots`, `graph`, `doctor`.
 
+## What's built (Phase II — Capability intelligence, in progress)
+
+- **Capability extraction**: a repo with a declared bin/script entry
+  point becomes a `Cli` capability; everything else with a manifest
+  becomes a weaker `Library` capability. `evidence_sources` tracks how
+  many independent signals agree rather than collapsing that into a
+  bool. `orbweaver capabilities [--repo <id>] [--json]`.
+- **Duplicate/shared-infrastructure detection**: external dependencies
+  declared by more than one repository, filtered to exclude both
+  one-offs and dependencies so common within their ecosystem (default
+  >20%) that sharing them is meaningless — explicitly labelled
+  `ProbabilisticInference`, a candidate for review rather than a claim.
+  `orbweaver duplicates [--min-repos N] [--max-ubiquity F] [--json]`.
+
+Still open in Phase II: interface extraction, schema detection, and
+richer project-relationship modelling — see `docs/ROADMAP.md`.
+
 Run it against the actual ELCI estate on this machine:
 
 ```bash
@@ -52,10 +69,6 @@ manifests.
 
 ## What's explicitly not built yet
 
-Everything past Phase I is unimplemented, not stubbed to look otherwise:
-
-- Capability extraction (a function/CLI command/README/test cluster ->
-  named capability with confidence and cost/value estimates) — Phase II.
 - ELCI connectors (Ontism, Padagonia, Kaptaind, Deckhand, Skillastic,
   Switchboard, Cambrian, Mimic, Goglz, Hellhound, Isopod, Schem) — Phase
   III. `orbweaver doctor` reports this honestly rather than pretending
@@ -75,16 +88,25 @@ each real ELCI tool actually exposes.
 
 ```
 crates/
-  orbweaver-core      data model (Repository, DependencyRef, errors)
+  orbweaver-core       data model (Repository, Capability, DependencyRef, errors)
   orbweaver-evidence   Evidence/Confidence/Availability provenance types
   orbweaver-git        deterministic git history inspection (git2)
   orbweaver-ingest     discovery + manifest parsing + dependency resolution
+                       + capability extraction
   orbweaver-graph      petgraph projection + JSON export
+  orbweaver-analysis   cross-repository analysis over a loaded snapshot
+                       (duplicate/shared-dependency detection)
   orbweaver-storage    SQLite snapshot persistence
   orbweaver-cli        `orbweaver` binary
 ```
 
-Crates for later phases (`orbweaver-analysis`, `orbweaver-opportunities`,
-`orbweaver-scoring`, `orbweaver-reasoning`, `orbweaver-connectors`,
-`orbweaver-policy`, `orbweaver-api`, `integrations/*`) are not scaffolded
-yet — they'll be added when there's real logic to put in them.
+Crates for later phases (`orbweaver-opportunities`, `orbweaver-scoring`,
+`orbweaver-reasoning`, `orbweaver-connectors`, `orbweaver-policy`,
+`orbweaver-api`, `integrations/*`) are not scaffolded yet — they'll be
+added when there's real logic to put in them.
+
+## Operations
+
+This repo is watched by a local `kaptaind` daemon (auto-versioning; push
+disabled, so it commits locally but never pushes on its own — see
+`kaptaind.toml`). Pushes to `github.com/elci-group/orbweaver` are manual.

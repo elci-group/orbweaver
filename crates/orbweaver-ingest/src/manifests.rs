@@ -303,3 +303,181 @@ pub fn parse_go_mod(path: &Path) -> Option<ManifestFacts> {
         dependencies,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn cargo_toml_extracts_package_facts_and_path_dependency() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "Cargo.toml",
+            r#"
+                [package]
+                name = "widget"
+                description = "does widget things"
+                license = "MIT"
+
+                [dependencies]
+                serde = "1"
+                orbweaver-core = { path = "../orbweaver-core" }
+            "#,
+        );
+
+        let facts = parse_cargo_toml(&path).unwrap();
+        assert_eq!(facts.name.as_deref(), Some("widget"));
+        assert_eq!(facts.description.as_deref(), Some("does widget things"));
+        assert_eq!(facts.license.as_deref(), Some("MIT"));
+        assert_eq!(facts.dependencies.len(), 2);
+
+        let serde_dep = facts.dependencies.iter().find(|d| d.name == "serde").unwrap();
+        assert!(!serde_dep.is_path_dependency);
+        assert_eq!(serde_dep.version_req.as_deref(), Some("1"));
+
+        let path_dep = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "orbweaver-core")
+            .unwrap();
+        assert!(path_dep.is_path_dependency);
+        assert_eq!(path_dep.path_hint.as_deref(), Some("../orbweaver-core"));
+    }
+
+    #[test]
+    fn package_json_distinguishes_registry_workspace_and_file_deps() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "package.json",
+            r#"{
+                "name": "webapp",
+                "description": "a webapp",
+                "dependencies": {
+                    "react": "^18.0.0",
+                    "local-lib": "file:../local-lib",
+                    "internal-pkg": "workspace:*"
+                }
+            }"#,
+        );
+
+        let facts = parse_package_json(&path).unwrap();
+        assert_eq!(facts.name.as_deref(), Some("webapp"));
+        assert_eq!(facts.dependencies.len(), 3);
+
+        let react = facts.dependencies.iter().find(|d| d.name == "react").unwrap();
+        assert!(!react.is_path_dependency);
+
+        let local = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "local-lib")
+            .unwrap();
+        assert!(local.is_path_dependency);
+        assert_eq!(local.path_hint.as_deref(), Some("../local-lib"));
+
+        let workspace = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "internal-pkg")
+            .unwrap();
+        assert!(workspace.is_path_dependency);
+        assert_eq!(workspace.path_hint, None);
+    }
+
+    #[test]
+    fn pyproject_pep621_parses_dependency_names_from_version_specifiers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "pyproject.toml",
+            r#"
+                [project]
+                name = "toolkit"
+                description = "a toolkit"
+                dependencies = ["requests>=2.0,<3", "click"]
+            "#,
+        );
+
+        let facts = parse_pyproject_toml(&path).unwrap();
+        assert_eq!(facts.name.as_deref(), Some("toolkit"));
+        let names: Vec<_> = facts.dependencies.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["requests", "click"]);
+    }
+
+    #[test]
+    fn pyproject_poetry_parses_table_and_string_dependencies_and_skips_python() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "pyproject.toml",
+            r#"
+                [tool.poetry]
+                name = "toolkit"
+
+                [tool.poetry.dependencies]
+                python = "^3.11"
+                requests = "^2.0"
+                local-lib = { path = "../local-lib" }
+            "#,
+        );
+
+        let facts = parse_pyproject_toml(&path).unwrap();
+        let names: Vec<_> = facts.dependencies.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names.len(), 2);
+        assert!(!names.contains(&"python"));
+
+        let local = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "local-lib")
+            .unwrap();
+        assert!(local.is_path_dependency);
+    }
+
+    #[test]
+    fn go_mod_parses_require_block_and_local_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "go.mod",
+            "module github.com/elci-group/widget\n\
+             \n\
+             go 1.21\n\
+             \n\
+             require (\n\
+             \tgithub.com/spf13/cobra v1.8.0\n\
+             \tgithub.com/elci-group/other v0.1.0\n\
+             )\n\
+             \n\
+             replace github.com/elci-group/other => ../other\n",
+        );
+
+        let facts = parse_go_mod(&path).unwrap();
+        assert_eq!(facts.name.as_deref(), Some("widget"));
+        assert_eq!(facts.dependencies.len(), 2);
+
+        let cobra = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "github.com/spf13/cobra")
+            .unwrap();
+        assert!(!cobra.is_path_dependency);
+
+        let other = facts
+            .dependencies
+            .iter()
+            .find(|d| d.name == "github.com/elci-group/other")
+            .unwrap();
+        assert!(other.is_path_dependency);
+        assert_eq!(other.path_hint.as_deref(), Some("../other"));
+    }
+}
