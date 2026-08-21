@@ -7,7 +7,7 @@ Each gate is the directive's own acceptance criterion for the phase.
 |---|---|---|
 | I — Foundation | Orbweaver can produce a reproducible ecosystem snapshot | **Done** |
 | II — Capability intelligence | Orbweaver can explain what each repository *does* | **In progress** |
-| III — ELCI integration | Orbweaver can enrich its model using real ELCI tool output | Not started |
+| III — ELCI integration | Orbweaver can enrich its model using real ELCI tool output | **In progress** |
 | IV — Opportunity engine | Orbweaver can produce non-obvious cross-project opportunities | Not started |
 | V — Leverage reasoning | Orbweaver can answer "why this rather than that" | Not started |
 | VI — Reasoning/evaluation | Recommendations outperform naive repo prioritisation | Not started |
@@ -105,12 +105,48 @@ section 12 describes; combining capability + interface + schema data
 into richer capability descriptions is the natural next slice if it's
 worth the added complexity before moving on to Phase III/IV.
 
-## Phase III connector order
+## Phase III deliverables so far
 
-Not yet decided — the directive is explicit that connector order should
-follow "actual discovered interfaces and leverage," not a fixed list.
-First step when Phase III starts: run `orbweaver doctor`-style discovery
-against each of Ontism, Padagonia, Kaptaind, Deckhand, Skillastic,
-Switchboard, Cambrian, Mimic, Goglz, Hellhound, Isopod, Schem to find out
-which actually expose a machine-readable CLI/API surface today, and
-prioritise from that, not from the order they're listed in the directive.
+- **ELCI tool discovery** (`orbweaver-connectors`): implements the
+  directive's discovery doctrine (sections 26–27) directly — for each
+  known tool name, checks whether a binary actually exists on PATH, and
+  only ever runs `--help`/`--version` (plus a self-description command,
+  but only if `--help` itself listed one first) rather than assuming any
+  interface. `orbweaver integrations [--json]`.
+
+  Verified against the real estate: 13/28 candidate binaries found (13
+  tool names × `{name, name-cli}`). `deckhand` exposes a genuine
+  machine-readable `capabilities` JSON manifest when probed from its own
+  repo directory (the path already known from a snapshot) — the
+  json-manifest discovery tier picked this up automatically, no
+  guessing involved. Everything else fell back to help-text parsing
+  across two different real formats in the wild (plain clap-default,
+  and a hand-styled ANSI-colored template used by padagonia).
+
+  Caught and fixed one real bug from running against real binaries:
+  `cambrian`, `goglz`, `hellhound`, and `deliver` all reject `--version`
+  with a nonzero exit and print clap's "unexpected argument" error —
+  the version-fallback wasn't checking exit status, so that error text
+  was being displayed as the tool's "version". Fixed by extracting the
+  accept/reject decision into a pure, directly-tested function
+  (`accept_version_output`) gated on process success.
+
+  Tool list: the 13 named in directive section 4.3 (Ontism, Padagonia,
+  Cambrian, Deckhand, Kaptaind, Skillastic, Switchboard, Mimic, Goglz,
+  Hellhound, Isopod, Schem, Dreamseq) plus `deliver`, added after
+  explicit confirmation that it's core ELCI infrastructure rather than
+  just another scanned repository (ordinary repos found by `orbweaver
+  scan` are not auto-promoted into the connector list — that would blur
+  "every repo we found" with "the infrastructure we treat as a
+  connector").
+
+## Remaining Phase III work
+
+Connector *capability mapping* is still shallow — a discovered command
+list (e.g. padagonia's `bfs`/`vector-search`/`to-json`) isn't yet turned
+into `Capability`/`Interface` records the way Rust repos get from
+`orbweaver-ingest`, and connector reports aren't persisted into
+snapshots (no `Evidence` trail, no `orbweaver integrations --repo`
+history over time) — both natural next steps once there's a concrete
+use for them, e.g. an opportunity that needs to cite "padagonia exposes
+vector search" as evidence.

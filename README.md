@@ -62,6 +62,23 @@ is to find those interactions with evidence, not vibes.
 Still open in Phase II: richer project-relationship modelling and latent
 capability detection — see `docs/ROADMAP.md`.
 
+## What's built (Phase III — ELCI integration, in progress)
+
+- **ELCI tool discovery**: for each known ELCI tool, checks whether a
+  binary actually exists on PATH and only ever runs `--help`/`--version`
+  (plus a self-description command, but only if `--help` itself listed
+  one) — never assumes an interface. `orbweaver integrations [--json]`.
+  Verified against the real estate: 13/28 candidate binaries found;
+  `deckhand` exposes a genuine machine-readable capability manifest that
+  gets picked up automatically. Tool list is the 13 named in the
+  directive plus `deliver`, confirmed as core ELCI infrastructure. See
+  `docs/ROADMAP.md` for a real bug this caught and fixed (a rejected
+  `--version` flag's error text being mistaken for a version string).
+
+Still open in Phase III: turning discovered connector commands into
+`Capability`/`Interface` records and persisting connector reports into
+snapshots — see `docs/ROADMAP.md`.
+
 Run it against the actual ELCI estate on this machine:
 
 ```bash
@@ -81,20 +98,11 @@ manifests.
 
 ## What's explicitly not built yet
 
-- ELCI connectors (Ontism, Padagonia, Kaptaind, Deckhand, Skillastic,
-  Switchboard, Cambrian, Mimic, Goglz, Hellhound, Isopod, Schem) — Phase
-  III. `orbweaver doctor` reports this honestly rather than pretending
-  connectivity exists.
 - Opportunity discovery, the leverage/scoring engine, counterfactual
   comparison, budget-constrained ranking — Phases IV–V.
 - LLM reasoning tiers, adversarial critique, evaluation corpus — Phase VI.
 - Outcome tracking and calibration — Phase VII.
 - Postgres, Axum API, RBAC, policy engine, web UI — Phase VIII.
-
-Building these against fake/imagined ELCI interfaces would violate the
-directive's own rule (section 26): connectors must discover their actual
-interface at runtime, not assume one. Phase III starts by inspecting what
-each real ELCI tool actually exposes.
 
 ## Workspace layout
 
@@ -108,14 +116,15 @@ crates/
   orbweaver-graph      petgraph projection + JSON export
   orbweaver-analysis   cross-repository analysis over a loaded snapshot
                        (duplicate/shared-dependency detection)
+  orbweaver-connectors ELCI tool discovery (PATH probing, --help parsing)
   orbweaver-storage    SQLite snapshot persistence
   orbweaver-cli        `orbweaver` binary
 ```
 
 Crates for later phases (`orbweaver-opportunities`, `orbweaver-scoring`,
-`orbweaver-reasoning`, `orbweaver-connectors`, `orbweaver-policy`,
-`orbweaver-api`, `integrations/*`) are not scaffolded yet — they'll be
-added when there's real logic to put in them.
+`orbweaver-reasoning`, `orbweaver-policy`, `orbweaver-api`,
+`integrations/*`) are not scaffolded yet — they'll be added when there's
+real logic to put in them.
 
 ## Operations
 

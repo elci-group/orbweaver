@@ -18,10 +18,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// ELCI tools named in the directive (section 4.3). This is a list of
-/// *candidates to probe*, not an assumption that any of them exist or
-/// behave a particular way — everything past "is there a binary on
-/// PATH" is discovered, not assumed.
+/// ELCI tools to connect to: the set named in the directive (section
+/// 4.3) plus any confirmed by the user to be core ELCI infrastructure
+/// (`deliver`). This is a list of *candidates to probe*, not an
+/// assumption that any of them exist or behave a particular way —
+/// everything past "is there a binary on PATH" is discovered, not
+/// assumed. Ordinary scanned repositories are not added here just for
+/// appearing in an `orbweaver scan` — that would blur "every repo we
+/// found" with "the infrastructure we treat as a connector."
 pub const KNOWN_TOOLS: &[&str] = &[
     "ontism",
     "padagonia",
@@ -36,6 +40,7 @@ pub const KNOWN_TOOLS: &[&str] = &[
     "isopod",
     "schem",
     "dreamseq",
+    "deliver",
 ];
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
