@@ -1,0 +1,10 @@
+[package]
+name = "orbweaver-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+git2.workspace = true
+chrono.workspace = true

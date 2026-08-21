@@ -1,0 +1,21 @@
+[package]
+name = "orbweaver-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "orbweaver"
+path = "src/main.rs"
+
+[dependencies]
+orbweaver-core.workspace = true
+orbweaver-evidence.workspace = true
+orbweaver-ingest.workspace = true
+orbweaver-graph.workspace = true
+orbweaver-storage.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

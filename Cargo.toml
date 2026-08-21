@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/orbweaver-core",
+    "crates/orbweaver-evidence",
+    "crates/orbweaver-git",
+    "crates/orbweaver-ingest",
+    "crates/orbweaver-graph",
+    "crates/orbweaver-storage",
+    "crates/orbweaver-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+orbweaver-core = { path = "crates/orbweaver-core" }
+orbweaver-evidence = { path = "crates/orbweaver-evidence" }
+orbweaver-git = { path = "crates/orbweaver-git" }
+orbweaver-ingest = { path = "crates/orbweaver-ingest" }
+orbweaver-graph = { path = "crates/orbweaver-graph" }
+orbweaver-storage = { path = "crates/orbweaver-storage" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+git2 = { version = "0.19", default-features = false }
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+petgraph = "0.6"
