@@ -105,6 +105,30 @@ pub struct Interface {
     pub description: Option<String>,
 }
 
+/// A single field of a [`Schema`], as literally declared in source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaField {
+    pub name: String,
+    /// The type exactly as written (`Option<String>`, `Vec<RepoId>`,
+    /// ...) — not resolved against its actual definition.
+    pub type_repr: String,
+}
+
+/// A serde-derived data structure statically detected from Rust source
+/// (directive section 9: schemas as evidence for what a capability
+/// consumes/produces). Text-pattern heuristic like [`Interface`] — no
+/// macro expansion, so it can't see fields added by other derives or
+/// `#[serde(flatten)]` semantics, and it only recognises `struct { ... }`
+/// bodies (tuple and unit structs are invisible to it).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Schema {
+    pub id: String,
+    pub repository: RepoId,
+    pub name: String,
+    pub description: Option<String>,
+    pub fields: Vec<SchemaField>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OrbweaverError {
     #[error("io error at {path}: {source}")]

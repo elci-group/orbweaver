@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use orbweaver_core::{Capability, CapabilityKind, Interface, Repository};
-use orbweaver_evidence::Evidence;
+use orbweaver_core::CapabilityKind;
 use orbweaver_graph::EcosystemGraph;
 use orbweaver_ingest::ScanConfig;
 use std::path::{Path, PathBuf};
@@ -76,6 +75,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// List extracted schemas (serde-derived structs) from a snapshot.
+    Schemas {
+        #[arg(long)]
+        snapshot: Option<String>,
+        /// Only show schemas for this repository id.
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check that Orbweaver's local environment is healthy.
     Doctor,
 }
@@ -99,6 +108,7 @@ fn main() -> Result<()> {
             json,
         } => cmd_duplicates(snapshot, min_repos, max_ubiquity, json),
         Command::Interfaces { snapshot, repo, json } => cmd_interfaces(snapshot, repo, json),
+        Command::Schemas { snapshot, repo, json } => cmd_schemas(snapshot, repo, json),
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -114,40 +124,33 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
     };
     let result = orbweaver_ingest::scan(&config)
         .with_context(|| format!("failed to scan {}", root.display()))?;
+    let data = orbweaver_storage::SnapshotData {
+        repositories: result.repositories,
+        capabilities: result.capabilities,
+        interfaces: result.interfaces,
+        schemas: result.schemas,
+        evidence: result.evidence,
+    };
 
     let snapshot_id = format!("snapshot-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
 
     let db_path = orbweaver_storage::default_db_path();
     let mut conn =
         orbweaver_storage::open(&db_path).with_context(|| "failed to open local snapshot store")?;
-    orbweaver_storage::save_snapshot(
-        &mut conn,
-        &snapshot_id,
-        &root,
-        &result.repositories,
-        &result.capabilities,
-        &result.interfaces,
-        &result.evidence,
-    )?;
+    orbweaver_storage::save_snapshot(&mut conn, &snapshot_id, &root, &data)?;
 
     if json {
         let export = serde_json::json!({
             "snapshot": snapshot_id,
             "root": root,
-            "repositories": result.repositories,
-            "capabilities": result.capabilities,
-            "interfaces": result.interfaces,
+            "repositories": data.repositories,
+            "capabilities": data.capabilities,
+            "interfaces": data.interfaces,
+            "schemas": data.schemas,
         });
         println!("{}", serde_json::to_string_pretty(&export)?);
     } else {
-        print_scan_summary(
-            &snapshot_id,
-            &root,
-            &result.repositories,
-            &result.capabilities,
-            &result.interfaces,
-            &result.evidence,
-        );
+        print_scan_summary(&snapshot_id, &root, &data);
     }
 
     Ok(())
@@ -165,14 +168,7 @@ fn cmd_status() -> Result<()> {
         .into_iter()
         .find(|s| s.id == snapshot_id)
         .expect("just-loaded snapshot must be listed");
-    print_scan_summary(
-        &snapshot_id,
-        &PathBuf::from(&summary.root),
-        &data.repositories,
-        &data.capabilities,
-        &data.interfaces,
-        &data.evidence,
-    );
+    print_scan_summary(&snapshot_id, &PathBuf::from(&summary.root), &data);
     Ok(())
 }
 
@@ -327,6 +323,42 @@ fn cmd_interfaces(snapshot: Option<String>, repo: Option<String>, json: bool) ->
     Ok(())
 }
 
+fn cmd_schemas(snapshot: Option<String>, repo: Option<String>, json: bool) -> Result<()> {
+    let db_path = orbweaver_storage::default_db_path();
+    let conn = orbweaver_storage::open(&db_path)?;
+    let snapshot_id = match snapshot {
+        Some(id) => id,
+        None => orbweaver_storage::latest_snapshot_id(&conn)?
+            .context("no snapshots yet — run `orbweaver scan` first")?,
+    };
+    let mut schemas = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?.schemas;
+
+    if let Some(repo_id) = &repo {
+        schemas.retain(|s| &s.repository == repo_id);
+    }
+    schemas.sort_by(|a, b| a.repository.cmp(&b.repository).then(a.name.cmp(&b.name)));
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&schemas)?);
+        return Ok(());
+    }
+
+    println!("Snapshot: {snapshot_id}");
+    println!("Schemas: {}", schemas.len());
+    println!(
+        "Confidence: ProbabilisticInference — statically detected from #[derive(Serialize/\n\
+         Deserialize)] structs, not verified against actual serialized output.\n"
+    );
+    for schema in &schemas {
+        let desc = schema.description.as_deref().unwrap_or("(no description)");
+        println!("  {:<20} {:<24} {desc}", schema.repository, schema.name);
+        for field in &schema.fields {
+            println!("      {:<20} {}", field.name, field.type_repr);
+        }
+    }
+    Ok(())
+}
+
 fn cmd_doctor() -> Result<()> {
     println!("ORBWEAVER DOCTOR\n");
 
@@ -357,14 +389,8 @@ fn which_git() -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-fn print_scan_summary(
-    snapshot_id: &str,
-    root: &Path,
-    repositories: &[Repository],
-    capabilities: &[Capability],
-    interfaces: &[Interface],
-    evidence: &[Evidence],
-) {
+fn print_scan_summary(snapshot_id: &str, root: &Path, data: &orbweaver_storage::SnapshotData) {
+    let repositories = &data.repositories;
     let graph = EcosystemGraph::from_repositories(repositories);
 
     let git_tracked = repositories.iter().filter(|r| r.is_git_repo).count();
@@ -385,16 +411,21 @@ fn print_scan_summary(
     }
     println!("Git-tracked: {git_tracked} / {}", repositories.len());
     println!("Total commits observed (capped per repo): {total_commits}");
-    println!("Evidence records: {}", evidence.len());
+    println!("Evidence records: {}", data.evidence.len());
     println!("Dependency edges resolved: {}", graph.edge_count());
 
-    let cli_count = capabilities
+    let cli_count = data
+        .capabilities
         .iter()
         .filter(|c| c.kind == CapabilityKind::Cli)
         .count();
-    let lib_count = capabilities.len() - cli_count;
-    println!("Capabilities extracted: {} (cli={cli_count}, library={lib_count})", capabilities.len());
-    println!("CLI interfaces extracted (heuristic): {}", interfaces.len());
+    let lib_count = data.capabilities.len() - cli_count;
+    println!(
+        "Capabilities extracted: {} (cli={cli_count}, library={lib_count})",
+        data.capabilities.len()
+    );
+    println!("CLI interfaces extracted (heuristic): {}", data.interfaces.len());
+    println!("Schemas extracted (heuristic): {}", data.schemas.len());
 
     let top = graph.most_depended_on(5);
     if !top.is_empty() {

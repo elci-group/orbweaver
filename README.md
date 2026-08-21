@@ -52,9 +52,15 @@ is to find those interactions with evidence, not vibes.
   doc comment. `orbweaver interfaces [--repo <id>] [--json]`. Verified
   against ground truth on Orbweaver's own source (see `docs/ROADMAP.md`
   for two real bugs this caught and fixed along the way).
+- **Schema detection**: scans `.rs` files for `#[derive(Serialize/
+  Deserialize)]` structs and reports each as a `Schema` with its fields
+  and doc comment, built on the same scanning primitives (and same bug
+  fixes) as interface extraction. `orbweaver schemas [--repo <id>]
+  [--json]`. Verified against ground truth: reports exactly the 11 real
+  serde structs in this workspace.
 
-Still open in Phase II: schema detection and richer project-relationship
-modelling — see `docs/ROADMAP.md`.
+Still open in Phase II: richer project-relationship modelling and latent
+capability detection — see `docs/ROADMAP.md`.
 
 Run it against the actual ELCI estate on this machine:
 
@@ -98,7 +104,7 @@ crates/
   orbweaver-evidence   Evidence/Confidence/Availability provenance types
   orbweaver-git        deterministic git history inspection (git2)
   orbweaver-ingest     discovery + manifest parsing + dependency resolution
-                       + capability extraction + CLI interface extraction
+                       + capability/interface/schema extraction
   orbweaver-graph      petgraph projection + JSON export
   orbweaver-analysis   cross-repository analysis over a loaded snapshot
                        (duplicate/shared-dependency detection)

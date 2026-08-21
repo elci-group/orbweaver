@@ -16,7 +16,7 @@ Each gate is the directive's own acceptance criterion for the phase.
 
 ## Phase I deliverables (this repo, now)
 
-- Rust workspace, six library crates + one CLI binary.
+- Rust workspace, seven library crates + one CLI binary.
 - Repository discovery with no hard-coded inventory.
 - Deterministic manifest parsing: Cargo, npm, Poetry/PEP 621, Go modules.
 - Deterministic git history inspection.
@@ -75,16 +75,35 @@ Each gate is the directive's own acceptance criterion for the phase.
   `orbweaver interfaces --repo orbweaver` now reports exactly the 8 real
   subcommands with correct full descriptions.
 
+- **Schema detection** (`orbweaver-ingest::schemas`): scans `.rs` files
+  for `#[derive(Serialize/Deserialize)]` structs and reports each as a
+  `Schema` with its fields (name + type as written) and struct-level doc
+  comment. Built on the same scanning primitives as interface extraction
+  — the raw-string/comment/`#[cfg(test)]` handling was factored out into
+  a shared `orbweaver-ingest::rust_scan` module rather than duplicated,
+  specifically so the bugs already found and fixed there couldn't be
+  reintroduced here. Always `ProbabilisticInference`; only recognises
+  `struct { field: Type, ... }` bodies (no tuple/unit structs, no fields
+  contributed by other macros). `orbweaver schemas`. Verified against
+  ground truth: `orbweaver schemas --repo orbweaver` reports exactly the
+  11 real serde structs in this workspace (correctly excluding
+  serde-derived *enums* like `CapabilityKind`/`Confidence`, which the
+  struct-only matcher doesn't claim to handle) with accurate fields and
+  doc comments.
+
 ## Remaining Phase II work
 
-Still open before the Phase II gate is fully met: schema detection, and
-project-relationship modelling beyond the depends_on graph Phase I
-already built. Capability *naming* is also still shallow — a `Cli`
-capability's "description" is just whatever the manifest said, not an
-aggregate of README content + interface names the way directive section
-12 describes; combining capability + interface data into richer
-capability descriptions is the natural next slice if it's worth the
-added complexity before moving on to Phase III/IV.
+Still open before the Phase II gate is fully met: project-relationship
+modelling beyond the depends_on graph Phase I already built, and latent
+capability detection (directive: capabilities trapped behind interfaces/
+schemas/missing adapters — this overlaps with Phase IV opportunity type
+B and may be better done there, once there's an opportunity engine to
+put the finding in). Capability *naming* is also still shallow — a
+`Cli` capability's "description" is just whatever the manifest said,
+not an aggregate of README content + interface names the way directive
+section 12 describes; combining capability + interface + schema data
+into richer capability descriptions is the natural next slice if it's
+worth the added complexity before moving on to Phase III/IV.
 
 ## Phase III connector order
 

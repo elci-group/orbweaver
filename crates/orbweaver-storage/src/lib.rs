@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use orbweaver_core::{
     Capability, CapabilityKind, DependencyRef, Interface, ManifestKind, OrbweaverError, Repository,
-    Result,
+    Result, Schema, SchemaField,
 };
 use orbweaver_evidence::{Confidence, Evidence, SourceType};
 use rusqlite::{params, Connection};
@@ -92,6 +92,22 @@ fn init_schema(conn: &Connection) -> Result<()> {
             PRIMARY KEY (snapshot_id, id)
         );
 
+        CREATE TABLE IF NOT EXISTS schemas (
+            snapshot_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            repository TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            PRIMARY KEY (snapshot_id, id)
+        );
+
+        CREATE TABLE IF NOT EXISTS schema_fields (
+            snapshot_id TEXT NOT NULL,
+            schema_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            type_repr TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS evidence (
             snapshot_id TEXT NOT NULL,
             id TEXT NOT NULL,
@@ -110,6 +126,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_evidence_snapshot ON evidence(snapshot_id, repository);
         CREATE INDEX IF NOT EXISTS idx_capabilities_snapshot ON capabilities(snapshot_id, repository);
         CREATE INDEX IF NOT EXISTS idx_interfaces_snapshot ON interfaces(snapshot_id, repository);
+        CREATE INDEX IF NOT EXISTS idx_schemas_snapshot ON schemas(snapshot_id, repository);
+        CREATE INDEX IF NOT EXISTS idx_schema_fields_snapshot ON schema_fields(snapshot_id, schema_id);
         "#,
     )
     .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -120,11 +138,16 @@ pub fn save_snapshot(
     conn: &mut Connection,
     snapshot_id: &str,
     root: &Path,
-    repositories: &[Repository],
-    capabilities: &[Capability],
-    interfaces: &[Interface],
-    evidence: &[Evidence],
+    data: &SnapshotData,
 ) -> Result<()> {
+    let SnapshotData {
+        repositories,
+        capabilities,
+        interfaces,
+        schemas,
+        evidence,
+    } = data;
+
     let tx = conn
         .transaction()
         .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -225,6 +248,31 @@ pub fn save_snapshot(
         .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
     }
 
+    for schema in schemas {
+        tx.execute(
+            "INSERT OR REPLACE INTO schemas
+                (snapshot_id, id, repository, name, description)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![
+                snapshot_id,
+                schema.id,
+                schema.repository,
+                schema.name,
+                schema.description,
+            ],
+        )
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+
+        for field in &schema.fields {
+            tx.execute(
+                "INSERT INTO schema_fields (snapshot_id, schema_id, name, type_repr)
+                 VALUES (?1,?2,?3,?4)",
+                params![snapshot_id, schema.id, field.name, field.type_repr],
+            )
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+        }
+    }
+
     for ev in evidence {
         let confidence_json = serde_json::to_string(&ev.confidence)
             .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -297,6 +345,7 @@ pub struct SnapshotData {
     pub repositories: Vec<Repository>,
     pub capabilities: Vec<Capability>,
     pub interfaces: Vec<Interface>,
+    pub schemas: Vec<Schema>,
     pub evidence: Vec<Evidence>,
 }
 
@@ -310,13 +359,67 @@ pub fn load_snapshot(conn: &Connection, snapshot_id: &str) -> Result<SnapshotDat
     }
     let capabilities = load_capabilities(conn, snapshot_id)?;
     let interfaces = load_interfaces(conn, snapshot_id)?;
+    let schemas = load_schemas(conn, snapshot_id)?;
     let evidence = load_evidence(conn, snapshot_id)?;
     Ok(SnapshotData {
         repositories,
         capabilities,
         interfaces,
+        schemas,
         evidence,
     })
+}
+
+fn load_schemas(conn: &Connection, snapshot_id: &str) -> Result<Vec<Schema>> {
+    let mut schemas = {
+        let mut stmt = conn
+            .prepare("SELECT id, repository, name, description FROM schemas WHERE snapshot_id = ?1")
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map(params![snapshot_id], |row| {
+                Ok(Schema {
+                    id: row.get(0)?,
+                    repository: row.get(1)?,
+                    name: row.get(2)?,
+                    description: row.get(3)?,
+                    fields: Vec::new(),
+                })
+            })
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?
+    };
+
+    let mut fields_by_schema: std::collections::HashMap<String, Vec<SchemaField>> = std::collections::HashMap::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT schema_id, name, type_repr FROM schema_fields WHERE snapshot_id = ?1")
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map(params![snapshot_id], |row| {
+                let schema_id: String = row.get(0)?;
+                Ok((
+                    schema_id,
+                    SchemaField {
+                        name: row.get(1)?,
+                        type_repr: row.get(2)?,
+                    },
+                ))
+            })
+            .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+        for row in rows {
+            let (schema_id, field) = row.map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+            fields_by_schema.entry(schema_id).or_default().push(field);
+        }
+    }
+
+    for schema in &mut schemas {
+        if let Some(fields) = fields_by_schema.remove(&schema.id) {
+            schema.fields = fields;
+        }
+    }
+
+    Ok(schemas)
 }
 
 fn load_interfaces(conn: &Connection, snapshot_id: &str) -> Result<Vec<Interface>> {
