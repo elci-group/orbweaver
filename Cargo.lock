@@ -598,11 +598,21 @@ dependencies = [
  "chrono",
  "clap",
  "orbweaver-analysis",
+ "orbweaver-connectors",
  "orbweaver-core",
  "orbweaver-evidence",
  "orbweaver-graph",
  "orbweaver-ingest",
  "orbweaver-storage",
+ "serde_json",
+]
+
+[[package]]
+name = "orbweaver-connectors"
+version = "0.1.0"
+dependencies = [
+ "orbweaver-evidence",
+ "serde",
  "serde_json",
 ]
 

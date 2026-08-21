@@ -7,6 +7,7 @@ members = [
     "crates/orbweaver-ingest",
     "crates/orbweaver-graph",
     "crates/orbweaver-analysis",
+    "crates/orbweaver-connectors",
     "crates/orbweaver-storage",
     "crates/orbweaver-cli",
 ]
@@ -24,6 +25,7 @@ orbweaver-git = { path = "crates/orbweaver-git" }
 orbweaver-ingest = { path = "crates/orbweaver-ingest" }
 orbweaver-graph = { path = "crates/orbweaver-graph" }
 orbweaver-analysis = { path = "crates/orbweaver-analysis" }
+orbweaver-connectors = { path = "crates/orbweaver-connectors" }
 orbweaver-storage = { path = "crates/orbweaver-storage" }
 
 serde = { version = "1", features = ["derive"] }

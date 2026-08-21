@@ -85,6 +85,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Discover which ELCI tools are actually available and what they
+    /// actually expose — probes `--help`/`--version` on PATH, never
+    /// assumes an interface (directive sections 26–27).
+    Integrations {
+        #[arg(long)]
+        json: bool,
+    },
     /// Check that Orbweaver's local environment is healthy.
     Doctor,
 }
@@ -109,6 +116,7 @@ fn main() -> Result<()> {
         } => cmd_duplicates(snapshot, min_repos, max_ubiquity, json),
         Command::Interfaces { snapshot, repo, json } => cmd_interfaces(snapshot, repo, json),
         Command::Schemas { snapshot, repo, json } => cmd_schemas(snapshot, repo, json),
+        Command::Integrations { json } => cmd_integrations(json),
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -357,6 +365,61 @@ fn cmd_schemas(snapshot: Option<String>, repo: Option<String>, json: bool) -> Re
         }
     }
     Ok(())
+}
+
+fn cmd_integrations(json: bool) -> Result<()> {
+    let repo_paths = latest_repo_paths().unwrap_or_default();
+    let reports = orbweaver_connectors::probe_all(&repo_paths);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&reports)?);
+        return Ok(());
+    }
+
+    println!("ORBWEAVER INTEGRATIONS\n");
+    println!(
+        "Probing PATH for known ELCI binaries. Only `--help`/`--version`, and a\n\
+         self-description command if `--help` itself listed one, are ever run.\n"
+    );
+
+    let available = reports
+        .iter()
+        .filter(|r| matches!(r.availability, orbweaver_evidence::Availability::Known(_)))
+        .count();
+    println!("{available}/{} candidate binaries found on PATH\n", reports.len());
+
+    for report in &reports {
+        match &report.availability {
+            orbweaver_evidence::Availability::Known(details) => {
+                let version = details.version.as_deref().unwrap_or("unknown version");
+                let method = match details.discovery_method {
+                    orbweaver_connectors::DiscoveryMethod::JsonCapabilityManifest => "json-manifest",
+                    orbweaver_connectors::DiscoveryMethod::HelpTextHeuristic => "help-text",
+                };
+                println!(
+                    "[ok]       {:<16} {version:<14} {} command(s) discovered ({method})",
+                    report.binary,
+                    details.commands.len(),
+                );
+            }
+            orbweaver_evidence::Availability::Unavailable { reason } => {
+                println!("[missing]  {:<16} {reason}", report.binary);
+            }
+            orbweaver_evidence::Availability::Unknown => {
+                println!("[unknown]  {:<16} (unable to determine)", report.binary);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn latest_repo_paths() -> Option<std::collections::HashMap<String, PathBuf>> {
+    let db_path = orbweaver_storage::default_db_path();
+    let conn = orbweaver_storage::open(&db_path).ok()?;
+    let snapshot_id = orbweaver_storage::latest_snapshot_id(&conn).ok()??;
+    let data = orbweaver_storage::load_snapshot(&conn, &snapshot_id).ok()?;
+    Some(data.repositories.into_iter().map(|r| (r.id, r.path)).collect())
 }
 
 fn cmd_doctor() -> Result<()> {

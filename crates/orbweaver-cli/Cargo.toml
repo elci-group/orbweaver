@@ -15,6 +15,7 @@ orbweaver-evidence.workspace = true
 orbweaver-ingest.workspace = true
 orbweaver-graph.workspace = true
 orbweaver-analysis.workspace = true
+orbweaver-connectors.workspace = true
 orbweaver-storage.workspace = true
 clap.workspace = true
 anyhow.workspace = true
