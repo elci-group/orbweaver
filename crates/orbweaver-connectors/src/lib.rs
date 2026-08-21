@@ -89,13 +89,21 @@ pub enum DiscoveryMethod {
 /// as both `<name>` and `<name>-cli`, since that split (a daemon binary
 /// plus a companion CLI) is a real pattern in this estate (kaptaind).
 pub fn probe_all(repo_paths: &std::collections::HashMap<String, PathBuf>) -> Vec<ConnectorReport> {
-    let mut reports = Vec::new();
-    for tool in KNOWN_TOOLS {
-        let repo_path = repo_paths.get(*tool).map(|p| p.as_path());
-        reports.push(probe_binary(tool, tool, repo_path));
-        reports.push(probe_binary(tool, &format!("{tool}-cli"), repo_path));
-    }
-    reports
+    KNOWN_TOOLS
+        .iter()
+        .flat_map(|tool| probe_tool(tool, repo_paths.get(*tool).map(|p| p.as_path())))
+        .collect()
+}
+
+/// Probe a single tool's two candidate binaries (`<name>` and
+/// `<name>-cli`). Exposed separately from [`probe_all`] so a caller that
+/// wants to show live per-tool progress — the whole sweep can take a few
+/// seconds — doesn't have to wait for the entire list to finish first.
+pub fn probe_tool(tool: &str, repo_path: Option<&Path>) -> Vec<ConnectorReport> {
+    vec![
+        probe_binary(tool, tool, repo_path),
+        probe_binary(tool, &format!("{tool}-cli"), repo_path),
+    ]
 }
 
 fn probe_binary(tool: &str, binary_name: &str, repo_path: Option<&Path>) -> ConnectorReport {

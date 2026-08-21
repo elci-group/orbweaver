@@ -8,6 +8,12 @@ the highest-leverage work is usually in the interactions between projects
 (`V_ij`, `V_ijk`, `V_feedback`), not inside any one of them. Orbweaver's job
 is to find those interactions with evidence, not vibes.
 
+The CLI is colored, emoji'd, and animated (spinners during `scan`/
+`integrations`) via `console`/`indicatif` — but only on the human-readable
+path. Every `--json` output stays plain, parseable JSON on stdout; color
+and animation write to stderr and vanish under `NO_COLOR`/non-tty output,
+so piping into `jq` or a file is unaffected.
+
 ## What's built (Phase I — Foundation)
 
 - **Discovery**: finds candidate repositories under a root directory

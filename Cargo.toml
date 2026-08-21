@@ -40,3 +40,5 @@ git2 = { version = "0.19", default-features = false }
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 petgraph = "0.6"
 tempfile = "3"
+console = "0.15"
+indicatif = "0.17"
