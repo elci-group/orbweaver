@@ -1,0 +1,33 @@
+# kaptaind configuration for orbweaver
+
+[watch]
+path = "."
+recursive = true
+ignore_file = ".kaptainignore"
+
+[cluster]
+window = 5
+
+[weights]
+s = 0.35
+a = 0.30
+d = 0.20
+r = 0.15
+
+[version_thresholds]
+minor = 0.6
+patch = 0.1
+
+[push]
+enabled = false
+branch = "main"
+
+[ratelimit]
+min_commit_interval = 10
+
+[test]
+command = "cargo test --workspace"
+required = true
+
+[trust]
+execution = "trusted"
