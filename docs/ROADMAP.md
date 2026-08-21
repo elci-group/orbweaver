@@ -50,17 +50,41 @@ Each gate is the directive's own acceptance criterion for the phase.
   (several tools independently doing git-based version logic, which is
   literally kaptaind's job).
 
+- **CLI interface extraction** (`orbweaver-ingest::interfaces`): the
+  first real *source*-level analysis, not just manifest facts. Scans
+  `.rs` files for `#[derive(Subcommand)]` enums (text-pattern, no
+  proc-macro expansion, no `cargo build`/execution) and reads off each
+  variant as an `Interface` — name converted to clap's default
+  kebab-case, description from its `///` doc comment. Always
+  `ProbabilisticInference`; explicitly can't see builder-style clap,
+  non-Rust CLIs, or `#[command(name = ...)]` renames. `orbweaver
+  interfaces`.
+
+  Caught and fixed two real correctness bugs via dogfooding (running it
+  on Orbweaver's own source, where the right answer was known): (1) the
+  brace/comma scanner didn't understand raw strings, so a `#[cfg(test)]`
+  fixture containing lookalike CLI source as a string literal got parsed
+  as if it were real code — fixed by stripping test modules before
+  scanning, and by teaching the scanner about `r#"..."#` raw strings and
+  the char-literal-vs-lifetime ambiguity (`'a'` vs `&'a str`) so it
+  doesn't desync on either; (2) a comma *inside a `///` doc comment*
+  (e.g. "Discover repositories under a root, extract deterministic
+  evidence...") was splitting one variant into two garbage ones — real
+  code has commas in doc comments constantly, this wasn't an edge case.
+  Both are covered by regression tests. Verified against ground truth:
+  `orbweaver interfaces --repo orbweaver` now reports exactly the 8 real
+  subcommands with correct full descriptions.
+
 ## Remaining Phase II work
 
-Still open before the Phase II gate is fully met: interface extraction
-(what does a capability actually take/return — needs real source
-analysis, not just manifest facts), schema detection, and
+Still open before the Phase II gate is fully met: schema detection, and
 project-relationship modelling beyond the depends_on graph Phase I
 already built. Capability *naming* is also still shallow — a `Cli`
 capability's "description" is just whatever the manifest said, not an
-aggregate of README content + test names the way directive section 12
-describes; that's the natural next slice if it's worth the added
-complexity before moving on to Phase III/IV.
+aggregate of README content + interface names the way directive section
+12 describes; combining capability + interface data into richer
+capability descriptions is the natural next slice if it's worth the
+added complexity before moving on to Phase III/IV.
 
 ## Phase III connector order
 

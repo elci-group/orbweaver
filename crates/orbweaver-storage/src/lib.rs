@@ -3,7 +3,8 @@
 
 use chrono::{DateTime, Utc};
 use orbweaver_core::{
-    Capability, CapabilityKind, DependencyRef, ManifestKind, OrbweaverError, Repository, Result,
+    Capability, CapabilityKind, DependencyRef, Interface, ManifestKind, OrbweaverError, Repository,
+    Result,
 };
 use orbweaver_evidence::{Confidence, Evidence, SourceType};
 use rusqlite::{params, Connection};
@@ -82,6 +83,15 @@ fn init_schema(conn: &Connection) -> Result<()> {
             PRIMARY KEY (snapshot_id, id)
         );
 
+        CREATE TABLE IF NOT EXISTS interfaces (
+            snapshot_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            repository TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            PRIMARY KEY (snapshot_id, id)
+        );
+
         CREATE TABLE IF NOT EXISTS evidence (
             snapshot_id TEXT NOT NULL,
             id TEXT NOT NULL,
@@ -99,6 +109,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_deps_snapshot ON dependencies(snapshot_id, repo_id);
         CREATE INDEX IF NOT EXISTS idx_evidence_snapshot ON evidence(snapshot_id, repository);
         CREATE INDEX IF NOT EXISTS idx_capabilities_snapshot ON capabilities(snapshot_id, repository);
+        CREATE INDEX IF NOT EXISTS idx_interfaces_snapshot ON interfaces(snapshot_id, repository);
         "#,
     )
     .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -111,6 +122,7 @@ pub fn save_snapshot(
     root: &Path,
     repositories: &[Repository],
     capabilities: &[Capability],
+    interfaces: &[Interface],
     evidence: &[Evidence],
 ) -> Result<()> {
     let tx = conn
@@ -197,6 +209,22 @@ pub fn save_snapshot(
         .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
     }
 
+    for iface in interfaces {
+        tx.execute(
+            "INSERT OR REPLACE INTO interfaces
+                (snapshot_id, id, repository, name, description)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![
+                snapshot_id,
+                iface.id,
+                iface.repository,
+                iface.name,
+                iface.description,
+            ],
+        )
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+    }
+
     for ev in evidence {
         let confidence_json = serde_json::to_string(&ev.confidence)
             .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
@@ -265,20 +293,50 @@ pub fn list_snapshots(conn: &Connection) -> Result<Vec<SnapshotSummary>> {
         .map_err(|e| OrbweaverError::Storage(e.to_string()))
 }
 
-pub fn load_snapshot(
-    conn: &Connection,
-    snapshot_id: &str,
-) -> Result<(Vec<Repository>, Vec<Capability>, Vec<Evidence>)> {
-    let mut repos = load_repositories(conn, snapshot_id)?;
+pub struct SnapshotData {
+    pub repositories: Vec<Repository>,
+    pub capabilities: Vec<Capability>,
+    pub interfaces: Vec<Interface>,
+    pub evidence: Vec<Evidence>,
+}
+
+pub fn load_snapshot(conn: &Connection, snapshot_id: &str) -> Result<SnapshotData> {
+    let mut repositories = load_repositories(conn, snapshot_id)?;
     let deps = load_dependencies(conn, snapshot_id)?;
-    for repo in &mut repos {
+    for repo in &mut repositories {
         if let Some(list) = deps.get(&repo.id) {
             repo.dependencies = list.clone();
         }
     }
     let capabilities = load_capabilities(conn, snapshot_id)?;
+    let interfaces = load_interfaces(conn, snapshot_id)?;
     let evidence = load_evidence(conn, snapshot_id)?;
-    Ok((repos, capabilities, evidence))
+    Ok(SnapshotData {
+        repositories,
+        capabilities,
+        interfaces,
+        evidence,
+    })
+}
+
+fn load_interfaces(conn: &Connection, snapshot_id: &str) -> Result<Vec<Interface>> {
+    let mut stmt = conn
+        .prepare("SELECT id, repository, name, description FROM interfaces WHERE snapshot_id = ?1")
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+
+    let rows = stmt
+        .query_map(params![snapshot_id], |row| {
+            Ok(Interface {
+                id: row.get(0)?,
+                repository: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+            })
+        })
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))?;
+
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| OrbweaverError::Storage(e.to_string()))
 }
 
 fn load_capabilities(conn: &Connection, snapshot_id: &str) -> Result<Vec<Capability>> {

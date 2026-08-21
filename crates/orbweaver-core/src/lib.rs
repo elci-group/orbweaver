@@ -90,6 +90,21 @@ pub struct Capability {
     pub evidence_sources: u32,
 }
 
+/// A single CLI subcommand surfaced by a repository, statically detected
+/// from a `#[derive(Subcommand)]` enum in its Rust source (directive
+/// section 9: `Capability --exposes--> Interface`). This is text-pattern
+/// heuristic, not a real parse — it can miss non-derive-style CLIs and
+/// can't see `#[command(name = "...")]` overrides — so every `Interface`
+/// is backed by `Confidence::ProbabilisticInference`, never treated as
+/// certain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Interface {
+    pub id: String,
+    pub repository: RepoId,
+    pub name: String,
+    pub description: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OrbweaverError {
     #[error("io error at {path}: {source}")]

@@ -6,11 +6,12 @@
 
 mod capabilities;
 mod discover;
+mod interfaces;
 mod manifests;
 
 pub use discover::discover_repositories;
 
-use orbweaver_core::{Capability, ManifestKind, Repository};
+use orbweaver_core::{Capability, Interface, ManifestKind, Repository};
 use orbweaver_evidence::{Confidence, Evidence, SourceType};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,7 @@ impl Default for ScanConfig {
 pub struct ScanResult {
     pub repositories: Vec<Repository>,
     pub capabilities: Vec<Capability>,
+    pub interfaces: Vec<Interface>,
     pub evidence: Vec<Evidence>,
 }
 
@@ -51,15 +53,21 @@ pub fn scan(config: &ScanConfig) -> std::io::Result<ScanResult> {
     resolve_internal_dependencies(&mut repositories, &mut evidence);
 
     let mut all_capabilities = Vec::new();
+    let mut all_interfaces = Vec::new();
     for repo in &repositories {
         let (mut caps, mut cap_evidence) = capabilities::extract(repo);
         all_capabilities.append(&mut caps);
         evidence.append(&mut cap_evidence);
+
+        let (mut ifaces, mut iface_evidence) = interfaces::extract(repo);
+        all_interfaces.append(&mut ifaces);
+        evidence.append(&mut iface_evidence);
     }
 
     Ok(ScanResult {
         repositories,
         capabilities: all_capabilities,
+        interfaces: all_interfaces,
         evidence,
     })
 }

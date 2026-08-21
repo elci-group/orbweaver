@@ -46,9 +46,15 @@ is to find those interactions with evidence, not vibes.
   >20%) that sharing them is meaningless — explicitly labelled
   `ProbabilisticInference`, a candidate for review rather than a claim.
   `orbweaver duplicates [--min-repos N] [--max-ubiquity F] [--json]`.
+- **CLI interface extraction**: the first real source-level analysis —
+  scans `.rs` files for `#[derive(Subcommand)]` enums (text-pattern, no
+  code execution) and reports each variant as an `Interface` with its
+  doc comment. `orbweaver interfaces [--repo <id>] [--json]`. Verified
+  against ground truth on Orbweaver's own source (see `docs/ROADMAP.md`
+  for two real bugs this caught and fixed along the way).
 
-Still open in Phase II: interface extraction, schema detection, and
-richer project-relationship modelling — see `docs/ROADMAP.md`.
+Still open in Phase II: schema detection and richer project-relationship
+modelling — see `docs/ROADMAP.md`.
 
 Run it against the actual ELCI estate on this machine:
 
@@ -92,7 +98,7 @@ crates/
   orbweaver-evidence   Evidence/Confidence/Availability provenance types
   orbweaver-git        deterministic git history inspection (git2)
   orbweaver-ingest     discovery + manifest parsing + dependency resolution
-                       + capability extraction
+                       + capability extraction + CLI interface extraction
   orbweaver-graph      petgraph projection + JSON export
   orbweaver-analysis   cross-repository analysis over a loaded snapshot
                        (duplicate/shared-dependency detection)

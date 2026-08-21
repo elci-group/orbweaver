@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use orbweaver_core::{Capability, CapabilityKind, Repository};
+use orbweaver_core::{Capability, CapabilityKind, Interface, Repository};
 use orbweaver_evidence::Evidence;
 use orbweaver_graph::EcosystemGraph;
 use orbweaver_ingest::ScanConfig;
@@ -66,6 +66,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// List extracted CLI interfaces (subcommands) from a snapshot.
+    Interfaces {
+        #[arg(long)]
+        snapshot: Option<String>,
+        /// Only show interfaces for this repository id.
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Check that Orbweaver's local environment is healthy.
     Doctor,
 }
@@ -88,6 +98,7 @@ fn main() -> Result<()> {
             max_ubiquity,
             json,
         } => cmd_duplicates(snapshot, min_repos, max_ubiquity, json),
+        Command::Interfaces { snapshot, repo, json } => cmd_interfaces(snapshot, repo, json),
         Command::Doctor => cmd_doctor(),
     }
 }
@@ -115,6 +126,7 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
         &root,
         &result.repositories,
         &result.capabilities,
+        &result.interfaces,
         &result.evidence,
     )?;
 
@@ -124,6 +136,7 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
             "root": root,
             "repositories": result.repositories,
             "capabilities": result.capabilities,
+            "interfaces": result.interfaces,
         });
         println!("{}", serde_json::to_string_pretty(&export)?);
     } else {
@@ -132,6 +145,7 @@ fn cmd_scan(root: PathBuf, max_commits: usize, json: bool) -> Result<()> {
             &root,
             &result.repositories,
             &result.capabilities,
+            &result.interfaces,
             &result.evidence,
         );
     }
@@ -146,7 +160,7 @@ fn cmd_status() -> Result<()> {
         println!("No snapshots yet. Run `orbweaver scan --root <path>` first.");
         return Ok(());
     };
-    let (repositories, capabilities, evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let data = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
     let summary = orbweaver_storage::list_snapshots(&conn)?
         .into_iter()
         .find(|s| s.id == snapshot_id)
@@ -154,9 +168,10 @@ fn cmd_status() -> Result<()> {
     print_scan_summary(
         &snapshot_id,
         &PathBuf::from(&summary.root),
-        &repositories,
-        &capabilities,
-        &evidence,
+        &data.repositories,
+        &data.capabilities,
+        &data.interfaces,
+        &data.evidence,
     );
     Ok(())
 }
@@ -183,8 +198,8 @@ fn cmd_graph(snapshot: Option<String>, json: bool) -> Result<()> {
         None => orbweaver_storage::latest_snapshot_id(&conn)?
             .context("no snapshots yet — run `orbweaver scan` first")?,
     };
-    let (repositories, _capabilities, _evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
-    let graph = EcosystemGraph::from_repositories(&repositories);
+    let data = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let graph = EcosystemGraph::from_repositories(&data.repositories);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&graph.to_export())?);
@@ -209,8 +224,7 @@ fn cmd_capabilities(snapshot: Option<String>, repo: Option<String>, json: bool) 
         None => orbweaver_storage::latest_snapshot_id(&conn)?
             .context("no snapshots yet — run `orbweaver scan` first")?,
     };
-    let (_repositories, mut capabilities, _evidence) =
-        orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let mut capabilities = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?.capabilities;
 
     if let Some(repo_id) = &repo {
         capabilities.retain(|c| &c.repository == repo_id);
@@ -246,9 +260,12 @@ fn cmd_duplicates(snapshot: Option<String>, min_repos: usize, max_ubiquity: f64,
         None => orbweaver_storage::latest_snapshot_id(&conn)?
             .context("no snapshots yet — run `orbweaver scan` first")?,
     };
-    let (repositories, _capabilities, _evidence) = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
-    let candidates =
-        orbweaver_analysis::shared_dependency_candidates(&repositories, min_repos, max_ubiquity);
+    let data = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?;
+    let candidates = orbweaver_analysis::shared_dependency_candidates(
+        &data.repositories,
+        min_repos,
+        max_ubiquity,
+    );
 
     if json {
         println!("{}", serde_json::to_string_pretty(&candidates)?);
@@ -273,6 +290,39 @@ fn cmd_duplicates(snapshot: Option<String>, min_repos: usize, max_ubiquity: f64,
             c.ecosystem_total,
             c.repositories.join(", ")
         );
+    }
+    Ok(())
+}
+
+fn cmd_interfaces(snapshot: Option<String>, repo: Option<String>, json: bool) -> Result<()> {
+    let db_path = orbweaver_storage::default_db_path();
+    let conn = orbweaver_storage::open(&db_path)?;
+    let snapshot_id = match snapshot {
+        Some(id) => id,
+        None => orbweaver_storage::latest_snapshot_id(&conn)?
+            .context("no snapshots yet — run `orbweaver scan` first")?,
+    };
+    let mut interfaces = orbweaver_storage::load_snapshot(&conn, &snapshot_id)?.interfaces;
+
+    if let Some(repo_id) = &repo {
+        interfaces.retain(|i| &i.repository == repo_id);
+    }
+    interfaces.sort_by(|a, b| a.repository.cmp(&b.repository).then(a.name.cmp(&b.name)));
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&interfaces)?);
+        return Ok(());
+    }
+
+    println!("Snapshot: {snapshot_id}");
+    println!("Interfaces: {}", interfaces.len());
+    println!(
+        "Confidence: ProbabilisticInference — statically detected from #[derive(Subcommand)]\n\
+         enums, not verified against runtime --help. Misses non-derive-style CLIs.\n"
+    );
+    for iface in &interfaces {
+        let desc = iface.description.as_deref().unwrap_or("(no description)");
+        println!("  {:<28} {:<20} {desc}", iface.repository, iface.name);
     }
     Ok(())
 }
@@ -312,6 +362,7 @@ fn print_scan_summary(
     root: &Path,
     repositories: &[Repository],
     capabilities: &[Capability],
+    interfaces: &[Interface],
     evidence: &[Evidence],
 ) {
     let graph = EcosystemGraph::from_repositories(repositories);
@@ -343,6 +394,7 @@ fn print_scan_summary(
         .count();
     let lib_count = capabilities.len() - cli_count;
     println!("Capabilities extracted: {} (cli={cli_count}, library={lib_count})", capabilities.len());
+    println!("CLI interfaces extracted (heuristic): {}", interfaces.len());
 
     let top = graph.most_depended_on(5);
     if !top.is_empty() {
