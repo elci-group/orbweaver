@@ -1,0 +1,25 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH orbweaver-duplicates 1  "duplicates " 
+.SH NAME
+duplicates \- 🔁 Find external dependencies shared by more than one repository — candidates for infrastructure\-extraction review (not proof of duplication; see `orbweaver\-analysis`)
+.SH SYNOPSIS
+\fBduplicates\fR [\fB\-\-snapshot\fR] [\fB\-\-min\-repos\fR] [\fB\-\-max\-ubiquity\fR] [\fB\-\-json\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+🔁 Find external dependencies shared by more than one repository — candidates for infrastructure\-extraction review (not proof of duplication; see `orbweaver\-analysis`)
+.SH OPTIONS
+.TP
+\fB\-\-snapshot\fR \fI<SNAPSHOT>\fR
+
+.TP
+\fB\-\-min\-repos\fR \fI<MIN_REPOS>\fR [default: 2]
+
+.TP
+\fB\-\-max\-ubiquity\fR \fI<MAX_UBIQUITY>\fR [default: 0.2]
+Exclude dependencies used by more than this fraction of repositories in their ecosystem (filters out foundational crates like tokio/serde that say nothing when shared)
+.TP
+\fB\-\-json\fR
+
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

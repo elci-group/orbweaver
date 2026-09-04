@@ -1,0 +1,52 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH orbweaver 1  "orbweaver 0.1.0" 
+.SH NAME
+orbweaver \- 🕸️  Ecosystem intelligence and leverage engine for ELCI\-group
+.SH SYNOPSIS
+\fBorbweaver\fR [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+🕸️  Ecosystem intelligence and leverage engine for ELCI\-group
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+orbweaver\-scan(1)
+🔍 Discover repositories under a root, extract evidence, and save a snapshot
+.TP
+orbweaver\-status(1)
+📊 Show the most recent snapshot at a glance
+.TP
+orbweaver\-snapshots(1)
+📸 List every snapshot taken so far
+.TP
+orbweaver\-graph(1)
+🕸️  Export the dependency graph of a snapshot
+.TP
+orbweaver\-capabilities(1)
+🧩 List what each repository in a snapshot can actually do
+.TP
+orbweaver\-duplicates(1)
+🔁 Find external dependencies shared by more than one repository — candidates for infrastructure\-extraction review (not proof of duplication; see `orbweaver\-analysis`)
+.TP
+orbweaver\-interfaces(1)
+🔌 List the CLI subcommands detected in a snapshot
+.TP
+orbweaver\-schemas(1)
+📐 List the data schemas detected in a snapshot
+.TP
+orbweaver\-integrations(1)
+🔗 Discover which ELCI tools are actually available and what they actually expose — probes `\-\-help`/`\-\-version` on PATH, never assumes an interface (directive sections 26–27)
+.TP
+orbweaver\-doctor(1)
+🩺 Check that Orbweaver\*(Aqs local environment is healthy
+.TP
+orbweaver\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v0.1.0

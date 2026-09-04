@@ -158,6 +158,17 @@ crates/
   orbweaver-cli        `orbweaver` binary
 ```
 
+## Man pages
+
+Man pages for `orbweaver` and every subcommand live in
+`crates/orbweaver-cli/man/` (`orbweaver.1`, `orbweaver-scan.1`, …). They
+are generated from the real `clap` definitions — regenerate after changing
+the CLI structs:
+
+```bash
+cargo run -p orbweaver-cli --example gen-man
+```
+
 Crates for later phases (`orbweaver-opportunities`, `orbweaver-scoring`,
 `orbweaver-reasoning`, `orbweaver-policy`, `orbweaver-api`,
 `integrations/*`) are not scaffolded yet — they'll be added when there's

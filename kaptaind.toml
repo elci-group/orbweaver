@@ -19,8 +19,14 @@ minor = 0.6
 patch = 0.1
 
 [push]
-enabled = false
+enabled = true
 branch = "main"
+
+[capabilities]
+network_push = true
+
+[operation]
+mode = "actuate"
 
 [ratelimit]
 min_commit_interval = 10
